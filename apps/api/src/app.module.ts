@@ -25,6 +25,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { RequestContextInterceptor } from './common/interceptors/request-context.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
+import { RequestTimeoutMiddleware } from './common/middleware/request-timeout.middleware';
 
 @Module({
   imports: [
@@ -69,6 +70,12 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(CorrelationIdMiddleware)
+      .forRoutes({ path: '*', method: RequestMethod.ALL });
+
+    // Timeout on all routes except webhooks — Stripe has its own retry/timeout
+    consumer
+      .apply(RequestTimeoutMiddleware)
+      .exclude({ path: '*/webhooks/*', method: RequestMethod.ALL })
       .forRoutes({ path: '*', method: RequestMethod.ALL });
   }
 }

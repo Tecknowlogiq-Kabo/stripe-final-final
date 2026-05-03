@@ -25,7 +25,31 @@ async function bootstrap() {
   app.setGlobalPrefix(apiPrefix);
   app.enableVersioning({ type: VersioningType.URI });
 
-  app.use(helmet());
+  // Helmet with production-grade CSP scoped to Stripe's required origins
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          // Stripe.js iframe + redirect frames
+          frameSrc: ["'self'", 'https://js.stripe.com', 'https://hooks.stripe.com'],
+          // Only load scripts from our origin and Stripe
+          scriptSrc: ["'self'", 'https://js.stripe.com'],
+          // API calls to our backend and Stripe
+          connectSrc: ["'self'", 'https://api.stripe.com'],
+          imgSrc: ["'self'", 'data:', 'https:'],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          fontSrc: ["'self'", 'data:'],
+        },
+      },
+      hsts: {
+        maxAge: 31_536_000, // 1 year
+        includeSubDomains: true,
+        preload: true,
+      },
+    }),
+  );
+
   app.use(compression());
 
   app.enableCors({
@@ -52,9 +76,25 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(port);
+  const server = await app.listen(port);
+
+  // Keep-alive timeout must exceed the load balancer idle timeout (AWS ALB default: 60s)
+  // Setting to 65s prevents premature connection termination under load
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+
   const logger = app.get(WINSTON_MODULE_NEST_PROVIDER);
   logger.log(`Application running on port ${port}`, 'Bootstrap');
+
+  // Graceful shutdown — NestJS closes DB connections, pending requests, etc.
+  const gracefulShutdown = async (signal: string) => {
+    logger.log(`${signal} received — shutting down gracefully`, 'Bootstrap');
+    await app.close();
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 }
 
 bootstrap().catch((err) => {

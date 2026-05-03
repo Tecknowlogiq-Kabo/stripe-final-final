@@ -1,24 +1,28 @@
-import { getSubscriptionPlans } from '@/actions/subscriptions';
+'use client';
 
-interface Plan {
-  id: string;
-  name: string;
-  amount: number;
-  currency: string;
-  interval: string;
-  intervalCount: number;
-  description?: string;
-  stripePriceId: string;
-}
+import { useGetPlansQuery } from '@/store/apis/subscriptionsApi';
 
-export default async function SubscriptionsPage() {
-  let plans: Plan[] = [];
-  let error: string | null = null;
+export default function SubscriptionsPage() {
+  const { data: plans = [], isLoading, isError } = useGetPlansQuery();
 
-  try {
-    plans = await getSubscriptionPlans();
-  } catch {
-    error = 'Failed to load plans. Make sure the API is running.';
+  if (isLoading) {
+    return (
+      <div>
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Subscription Plans</h1>
+          <p className="text-gray-500 mt-1">Choose the plan that works for you</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="card animate-pulse">
+              <div className="h-6 bg-gray-200 rounded mb-3 w-3/4" />
+              <div className="h-4 bg-gray-100 rounded mb-6 w-full" />
+              <div className="h-10 bg-gray-200 rounded w-1/2 mt-auto" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -28,13 +32,13 @@ export default async function SubscriptionsPage() {
         <p className="text-gray-500 mt-1">Choose the plan that works for you</p>
       </div>
 
-      {error && (
+      {isError && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
-          {error}
+          Failed to load plans. Make sure the API is running.
         </div>
       )}
 
-      {plans.length === 0 && !error ? (
+      {!isError && plans.length === 0 ? (
         <div className="card text-center py-12 text-gray-500">
           No plans configured yet. Add plans in your Stripe dashboard and sync them.
         </div>
