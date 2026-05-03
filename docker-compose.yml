@@ -1,0 +1,76 @@
+version: '3.9'
+
+services:
+  oracle:
+    image: gvenzl/oracle-xe:21-slim
+    container_name: stripe_oracle
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_SYS_PASSWORD}
+      APP_USER: ${ORACLE_USER}
+      APP_USER_PASSWORD: ${ORACLE_PASSWORD}
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 30s
+      timeout: 20s
+      retries: 10
+      start_period: 120s
+    networks:
+      - stripe_net
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: development
+    container_name: stripe_api
+    env_file:
+      - ./apps/api/.env
+    environment:
+      NODE_ENV: development
+      ORACLE_HOST: oracle
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./apps/api:/app
+      - /app/node_modules
+    depends_on:
+      oracle:
+        condition: service_healthy
+    networks:
+      - stripe_net
+    command: npm run start:dev
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      target: development
+    container_name: stripe_web
+    env_file:
+      - ./apps/web/.env.local
+    environment:
+      NODE_ENV: development
+      API_URL: http://api:3001
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - api
+    networks:
+      - stripe_net
+    command: npm run dev
+
+volumes:
+  oracle_data:
+    driver: local
+
+networks:
+  stripe_net:
+    driver: bridge

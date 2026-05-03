@@ -1,0 +1,177 @@
+import { MigrationInterface, QueryRunner } from 'typeorm';
+
+export class InitialSchema1700000000001 implements MigrationInterface {
+  name = 'InitialSchema1700000000001';
+
+  async up(queryRunner: QueryRunner): Promise<void> {
+    // STRIPE_CUSTOMERS
+    await queryRunner.query(`
+      CREATE TABLE STRIPE_CUSTOMERS (
+        ID                 VARCHAR2(36)   DEFAULT SYS_GUID() NOT NULL,
+        STRIPE_CUSTOMER_ID VARCHAR2(50)   NOT NULL,
+        EMAIL              VARCHAR2(255)  NOT NULL,
+        NAME               VARCHAR2(255),
+        PHONE              VARCHAR2(50),
+        METADATA           CLOB,
+        IDEMPOTENCY_KEY    VARCHAR2(255),
+        IS_DELETED         NUMBER(1)      DEFAULT 0 NOT NULL,
+        CREATED_AT         TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        UPDATED_AT         TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        CONSTRAINT PK_STRIPE_CUSTOMERS        PRIMARY KEY (ID),
+        CONSTRAINT UQ_STRIPE_CUSTOMERS_SID    UNIQUE (STRIPE_CUSTOMER_ID)
+      )
+    `);
+
+    // SUBSCRIPTION_PLANS
+    await queryRunner.query(`
+      CREATE TABLE SUBSCRIPTION_PLANS (
+        ID                 VARCHAR2(36)   DEFAULT SYS_GUID() NOT NULL,
+        STRIPE_PRICE_ID    VARCHAR2(100)  NOT NULL,
+        STRIPE_PRODUCT_ID  VARCHAR2(100)  NOT NULL,
+        NAME               VARCHAR2(255)  NOT NULL,
+        DESCRIPTION        VARCHAR2(4000),
+        AMOUNT             NUMBER(15,0)   NOT NULL,
+        CURRENCY           VARCHAR2(3)    DEFAULT 'usd' NOT NULL,
+        INTERVAL_TYPE      VARCHAR2(20)   NOT NULL,
+        INTERVAL_COUNT     NUMBER(3)      DEFAULT 1 NOT NULL,
+        IS_ACTIVE          NUMBER(1)      DEFAULT 1 NOT NULL,
+        CREATED_AT         TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        UPDATED_AT         TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        CONSTRAINT PK_SUBSCRIPTION_PLANS       PRIMARY KEY (ID),
+        CONSTRAINT UQ_SUBSCRIPTION_PLANS_PRICE UNIQUE (STRIPE_PRICE_ID)
+      )
+    `);
+
+    // STRIPE_PAYMENT_METHODS
+    await queryRunner.query(`
+      CREATE TABLE STRIPE_PAYMENT_METHODS (
+        ID                 VARCHAR2(36)   DEFAULT SYS_GUID() NOT NULL,
+        STRIPE_PM_ID       VARCHAR2(100)  NOT NULL,
+        TYPE               VARCHAR2(50)   NOT NULL,
+        LAST4              VARCHAR2(4),
+        BRAND              VARCHAR2(50),
+        EXP_MONTH          NUMBER(2),
+        EXP_YEAR           NUMBER(4),
+        FINGERPRINT        VARCHAR2(100),
+        CUSTOMER_ID        VARCHAR2(36)   NOT NULL,
+        IS_DEFAULT         NUMBER(1)      DEFAULT 0 NOT NULL,
+        CREATED_AT         TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        UPDATED_AT         TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        CONSTRAINT PK_STRIPE_PAYMENT_METHODS       PRIMARY KEY (ID),
+        CONSTRAINT UQ_STRIPE_PAYMENT_METHODS_SID   UNIQUE (STRIPE_PM_ID),
+        CONSTRAINT FK_STRIPE_PM_CUSTOMER           FOREIGN KEY (CUSTOMER_ID)
+          REFERENCES STRIPE_CUSTOMERS(ID)
+      )
+    `);
+
+    // STRIPE_PAYMENT_INTENTS
+    await queryRunner.query(`
+      CREATE TABLE STRIPE_PAYMENT_INTENTS (
+        ID                    VARCHAR2(36)   DEFAULT SYS_GUID() NOT NULL,
+        STRIPE_PI_ID          VARCHAR2(100)  NOT NULL,
+        AMOUNT                NUMBER(15,0)   NOT NULL,
+        CURRENCY              VARCHAR2(3)    NOT NULL,
+        STATUS                VARCHAR2(50)   NOT NULL,
+        CLIENT_SECRET         VARCHAR2(500)  NOT NULL,
+        CUSTOMER_ID           VARCHAR2(36)   NOT NULL,
+        STRIPE_PM_ID          VARCHAR2(100),
+        IDEMPOTENCY_KEY       VARCHAR2(255),
+        METADATA              CLOB,
+        DESCRIPTION           VARCHAR2(4000),
+        ERROR_CODE            VARCHAR2(100),
+        ERROR_DECLINE_CODE    VARCHAR2(100),
+        ERROR_MESSAGE         VARCHAR2(4000),
+        CREATED_AT            TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        UPDATED_AT            TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        CONSTRAINT PK_STRIPE_PAYMENT_INTENTS       PRIMARY KEY (ID),
+        CONSTRAINT UQ_STRIPE_PI_SID                UNIQUE (STRIPE_PI_ID),
+        CONSTRAINT FK_STRIPE_PI_CUSTOMER           FOREIGN KEY (CUSTOMER_ID)
+          REFERENCES STRIPE_CUSTOMERS(ID)
+      )
+    `);
+
+    // STRIPE_SETUP_INTENTS
+    await queryRunner.query(`
+      CREATE TABLE STRIPE_SETUP_INTENTS (
+        ID                 VARCHAR2(36)   DEFAULT SYS_GUID() NOT NULL,
+        STRIPE_SI_ID       VARCHAR2(100)  NOT NULL,
+        STATUS             VARCHAR2(50)   NOT NULL,
+        CLIENT_SECRET      VARCHAR2(500)  NOT NULL,
+        CUSTOMER_ID        VARCHAR2(36)   NOT NULL,
+        STRIPE_PM_ID       VARCHAR2(100),
+        IDEMPOTENCY_KEY    VARCHAR2(255),
+        METADATA           CLOB,
+        DESCRIPTION        VARCHAR2(4000),
+        CREATED_AT         TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        UPDATED_AT         TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        CONSTRAINT PK_STRIPE_SETUP_INTENTS         PRIMARY KEY (ID),
+        CONSTRAINT UQ_STRIPE_SI_SID                UNIQUE (STRIPE_SI_ID),
+        CONSTRAINT FK_STRIPE_SI_CUSTOMER           FOREIGN KEY (CUSTOMER_ID)
+          REFERENCES STRIPE_CUSTOMERS(ID)
+      )
+    `);
+
+    // STRIPE_SUBSCRIPTIONS
+    await queryRunner.query(`
+      CREATE TABLE STRIPE_SUBSCRIPTIONS (
+        ID                      VARCHAR2(36)   DEFAULT SYS_GUID() NOT NULL,
+        STRIPE_SUB_ID           VARCHAR2(100)  NOT NULL,
+        STATUS                  VARCHAR2(50)   NOT NULL,
+        CURRENT_PERIOD_START    TIMESTAMP,
+        CURRENT_PERIOD_END      TIMESTAMP,
+        CANCEL_AT_PERIOD_END    NUMBER(1)      DEFAULT 0 NOT NULL,
+        TRIAL_END               TIMESTAMP,
+        TRIAL_START             TIMESTAMP,
+        STRIPE_PRICE_ID         VARCHAR2(100)  NOT NULL,
+        DEFAULT_PM_ID           VARCHAR2(100),
+        CUSTOMER_ID             VARCHAR2(36)   NOT NULL,
+        METADATA                CLOB,
+        CREATED_AT              TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        UPDATED_AT              TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        CONSTRAINT PK_STRIPE_SUBSCRIPTIONS         PRIMARY KEY (ID),
+        CONSTRAINT UQ_STRIPE_SUB_SID               UNIQUE (STRIPE_SUB_ID),
+        CONSTRAINT FK_STRIPE_SUB_CUSTOMER          FOREIGN KEY (CUSTOMER_ID)
+          REFERENCES STRIPE_CUSTOMERS(ID)
+      )
+    `);
+
+    // STRIPE_WEBHOOK_EVENTS
+    await queryRunner.query(`
+      CREATE TABLE STRIPE_WEBHOOK_EVENTS (
+        ID                 VARCHAR2(36)   DEFAULT SYS_GUID() NOT NULL,
+        STRIPE_EVENT_ID    VARCHAR2(100)  NOT NULL,
+        EVENT_TYPE         VARCHAR2(100)  NOT NULL,
+        PAYLOAD            CLOB           NOT NULL,
+        STATUS             VARCHAR2(20)   DEFAULT 'pending' NOT NULL,
+        ERROR_MESSAGE      VARCHAR2(4000),
+        RETRY_COUNT        NUMBER(3)      DEFAULT 0 NOT NULL,
+        PROCESSED_AT       TIMESTAMP,
+        CREATED_AT         TIMESTAMP      DEFAULT SYSTIMESTAMP NOT NULL,
+        CONSTRAINT PK_STRIPE_WEBHOOK_EVENTS        PRIMARY KEY (ID),
+        CONSTRAINT UQ_STRIPE_WEBHOOK_EVENT_ID      UNIQUE (STRIPE_EVENT_ID)
+      )
+    `);
+
+    // Indexes for common query patterns
+    await queryRunner.query(`CREATE INDEX IDX_PI_CUSTOMER ON STRIPE_PAYMENT_INTENTS(CUSTOMER_ID)`);
+    await queryRunner.query(`CREATE INDEX IDX_PI_STATUS ON STRIPE_PAYMENT_INTENTS(STATUS)`);
+    await queryRunner.query(`CREATE INDEX IDX_PI_CREATED ON STRIPE_PAYMENT_INTENTS(CREATED_AT)`);
+    await queryRunner.query(`CREATE INDEX IDX_SI_CUSTOMER ON STRIPE_SETUP_INTENTS(CUSTOMER_ID)`);
+    await queryRunner.query(`CREATE INDEX IDX_PM_CUSTOMER ON STRIPE_PAYMENT_METHODS(CUSTOMER_ID)`);
+    await queryRunner.query(`CREATE INDEX IDX_SUB_CUSTOMER ON STRIPE_SUBSCRIPTIONS(CUSTOMER_ID)`);
+    await queryRunner.query(`CREATE INDEX IDX_SUB_STATUS ON STRIPE_SUBSCRIPTIONS(STATUS)`);
+    await queryRunner.query(`CREATE INDEX IDX_WH_TYPE ON STRIPE_WEBHOOK_EVENTS(EVENT_TYPE)`);
+    await queryRunner.query(`CREATE INDEX IDX_WH_STATUS ON STRIPE_WEBHOOK_EVENTS(STATUS)`);
+    await queryRunner.query(`CREATE INDEX IDX_WH_CREATED ON STRIPE_WEBHOOK_EVENTS(CREATED_AT)`);
+  }
+
+  async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`DROP TABLE STRIPE_WEBHOOK_EVENTS`);
+    await queryRunner.query(`DROP TABLE STRIPE_SUBSCRIPTIONS`);
+    await queryRunner.query(`DROP TABLE STRIPE_SETUP_INTENTS`);
+    await queryRunner.query(`DROP TABLE STRIPE_PAYMENT_INTENTS`);
+    await queryRunner.query(`DROP TABLE STRIPE_PAYMENT_METHODS`);
+    await queryRunner.query(`DROP TABLE SUBSCRIPTION_PLANS`);
+    await queryRunner.query(`DROP TABLE STRIPE_CUSTOMERS`);
+  }
+}
