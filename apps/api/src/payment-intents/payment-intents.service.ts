@@ -47,6 +47,8 @@ export class PaymentIntentsService {
         customer: customer.stripeCustomerId,
         payment_method: dto.paymentMethodId,
         setup_future_usage: dto.setupFutureUsage,
+        receipt_email: dto.receiptEmail,
+        statement_descriptor: dto.statementDescriptor,
         automatic_payment_methods: {
           enabled: true,
         },
@@ -78,6 +80,18 @@ export class PaymentIntentsService {
       idempotencyKey,
       metadata: dto.metadata ? JSON.stringify(dto.metadata) : undefined,
       description: dto.description,
+      setupFutureUsage: dto.setupFutureUsage,
+      receiptEmail: dto.receiptEmail,
+      statementDescriptor: dto.statementDescriptor,
+      paymentMethodTypes: stripePI.payment_method_types
+        ? JSON.stringify(stripePI.payment_method_types)
+        : undefined,
+      amountReceived: stripePI.amount_received,
+      amountCapturable: stripePI.amount_capturable,
+      nextAction: stripePI.next_action
+        ? JSON.stringify(stripePI.next_action)
+        : undefined,
+      livemode: stripePI.livemode,
     });
 
     const saved = await this.piRepo.save(pi);
@@ -139,6 +153,8 @@ export class PaymentIntentsService {
     errorCode?: string,
     errorDeclineCode?: string,
     errorMessage?: string,
+    nextAction?: string,
+    amountReceived?: number,
   ): Promise<void> {
     const pi = await this.findByStripeId(stripePaymentIntentId);
     if (!pi) return;
@@ -146,6 +162,8 @@ export class PaymentIntentsService {
     if (errorCode) pi.errorCode = errorCode;
     if (errorDeclineCode) pi.errorDeclineCode = errorDeclineCode;
     if (errorMessage) pi.errorMessage = errorMessage;
+    if (nextAction !== undefined) pi.nextAction = nextAction;
+    if (amountReceived !== undefined) pi.amountReceived = amountReceived;
     await this.piRepo.save(pi);
   }
 }

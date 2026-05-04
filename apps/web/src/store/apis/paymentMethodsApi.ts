@@ -4,10 +4,26 @@ export interface PaymentMethod {
   id: string;
   stripePaymentMethodId: string;
   type: string;
+  // Card-specific
   last4?: string;
   brand?: string;
   expMonth?: number;
   expYear?: number;
+  // Type-specific sub-object (sepa_debit, us_bank_account, ideal, etc.)
+  details?: Record<string, unknown>;
+  // Billing details from Stripe
+  billingDetails?: {
+    name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    address?: Record<string, string | null>;
+  };
+  // Wallet type for card PMs (apple_pay, google_pay, link, etc.)
+  cardWalletType?: string;
+  // ISO 3166-1 alpha-2 country code
+  country?: string;
+  // Card funding type: credit | debit | prepaid | unknown
+  funding?: string;
   isDefault: boolean;
   createdAt: string;
 }

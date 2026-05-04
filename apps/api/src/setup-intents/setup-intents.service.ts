@@ -36,7 +36,13 @@ export class SetupIntentsService {
     const stripeSI = await this.stripeService.setupIntents.create(
       {
         customer: customer.stripeCustomerId,
-        payment_method_types: dto.paymentMethodTypes ?? ['card'],
+        // Use automatic_payment_methods when no explicit types are given —
+        // this lets Stripe's PaymentElement show all supported methods for
+        // the customer's locale without manual maintenance of the type list.
+        ...(dto.paymentMethodTypes?.length
+          ? { payment_method_types: dto.paymentMethodTypes }
+          : { automatic_payment_methods: { enabled: true } }),
+        usage: dto.usage ?? 'off_session',
         metadata: {
           ...dto.metadata,
           internal_customer_id: customer.id,
@@ -60,6 +66,14 @@ export class SetupIntentsService {
       idempotencyKey,
       metadata: dto.metadata ? JSON.stringify(dto.metadata) : undefined,
       description: dto.description,
+      usage: dto.usage ?? 'off_session',
+      paymentMethodTypes: stripeSI.payment_method_types
+        ? JSON.stringify(stripeSI.payment_method_types)
+        : undefined,
+      nextAction: stripeSI.next_action
+        ? JSON.stringify(stripeSI.next_action)
+        : undefined,
+      livemode: stripeSI.livemode,
     });
 
     const saved = await this.siRepo.save(si);
@@ -91,11 +105,17 @@ export class SetupIntentsService {
     return this.siRepo.save(si);
   }
 
-  async updateStatus(stripeSetupIntentId: string, status: string, stripePaymentMethodId?: string): Promise<void> {
+  async updateStatus(
+    stripeSetupIntentId: string,
+    status: string,
+    stripePaymentMethodId?: string,
+    lastSetupError?: string,
+  ): Promise<void> {
     const si = await this.findByStripeId(stripeSetupIntentId);
     if (!si) return;
     si.status = status;
     if (stripePaymentMethodId) si.stripePaymentMethodId = stripePaymentMethodId;
+    if (lastSetupError !== undefined) si.lastSetupError = lastSetupError;
     await this.siRepo.save(si);
   }
 }

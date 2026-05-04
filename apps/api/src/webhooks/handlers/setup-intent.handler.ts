@@ -27,7 +27,12 @@ export class SetupIntentHandler {
         break;
 
       case 'setup_intent.setup_failed':
-        await this.setupIntentsService.updateStatus(si.id, 'requires_payment_method');
+        await this.setupIntentsService.updateStatus(
+          si.id,
+          'requires_payment_method',
+          undefined,
+          si.last_setup_error ? JSON.stringify(si.last_setup_error) : undefined,
+        );
         break;
 
       case 'setup_intent.canceled':

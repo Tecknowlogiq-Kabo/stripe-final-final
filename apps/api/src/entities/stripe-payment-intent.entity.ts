@@ -56,6 +56,30 @@ export class StripePaymentIntent {
   @Column({ name: 'ERROR_MESSAGE', type: 'varchar2', length: 4000, nullable: true })
   errorMessage?: string;
 
+  @Column({ name: 'SETUP_FUTURE_USAGE', type: 'varchar2', length: 20, nullable: true })
+  setupFutureUsage?: string;
+
+  @Column({ name: 'NEXT_ACTION', type: 'clob', nullable: true })
+  nextAction?: string;
+
+  @Column({ name: 'PAYMENT_METHOD_TYPES', type: 'varchar2', length: 500, nullable: true })
+  paymentMethodTypes?: string;
+
+  @Column({ name: 'AMOUNT_RECEIVED', type: 'number', precision: 15, scale: 0, nullable: true })
+  amountReceived?: number;
+
+  @Column({ name: 'AMOUNT_CAPTURABLE', type: 'number', precision: 15, scale: 0, nullable: true })
+  amountCapturable?: number;
+
+  @Column({ name: 'RECEIPT_EMAIL', type: 'varchar2', length: 255, nullable: true })
+  receiptEmail?: string;
+
+  @Column({ name: 'STATEMENT_DESCRIPTOR', type: 'varchar2', length: 22, nullable: true })
+  statementDescriptor?: string;
+
+  @Column({ name: 'LIVEMODE', type: 'number', width: 1, default: 0 })
+  livemode: boolean;
+
   @CreateDateColumn({ name: 'CREATED_AT', type: 'timestamp' })
   createdAt: Date;
 

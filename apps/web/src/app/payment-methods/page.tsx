@@ -4,19 +4,109 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { StripeProvider } from '@/components/stripe/StripeProvider';
 import { SetupForm } from '@/components/stripe/SetupForm';
-import { useGetCustomerPaymentMethodsQuery, useDetachPaymentMethodMutation, useSetDefaultPaymentMethodMutation } from '@/store/apis/paymentMethodsApi';
+import {
+  useGetCustomerPaymentMethodsQuery,
+  useDetachPaymentMethodMutation,
+  useSetDefaultPaymentMethodMutation,
+  type PaymentMethod,
+} from '@/store/apis/paymentMethodsApi';
 import { createSetupIntent } from '@/actions/setup-intents';
 
 const DEMO_CUSTOMER_ID = process.env.NEXT_PUBLIC_DEMO_CUSTOMER_ID ?? '';
 
-function CardBrand({ brand }: { brand?: string }) {
-  const label = brand ? brand.charAt(0).toUpperCase() + brand.slice(1) : 'Card';
-  return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
-      {label}
-    </span>
-  );
+// ── Display helpers ──────────────────────────────────────────────────────────
+
+function getPaymentMethodLabel(pm: PaymentMethod): string {
+  const d = pm.details as Record<string, unknown> | undefined;
+  const last4 = (d?.last4 as string | undefined) ?? '';
+  switch (pm.type) {
+    case 'card':
+      return `${pm.brand ? pm.brand.charAt(0).toUpperCase() + pm.brand.slice(1) : 'Card'} •••• ${pm.last4 ?? ''}`;
+    case 'sepa_debit':
+      return `SEPA •••• ${last4}`;
+    case 'us_bank_account':
+      return `ACH •••• ${last4}`;
+    case 'bacs_debit':
+      return `BACS •••• ${last4}`;
+    case 'au_becs_debit':
+      return `BECS •••• ${last4}`;
+    case 'acss_debit':
+      return `ACSS •••• ${last4}`;
+    case 'nz_bank_account':
+      return `NZ Bank •••• ${last4}`;
+    case 'ideal': {
+      const bank = d?.bank as string | undefined;
+      return bank ? `iDEAL – ${bank}` : 'iDEAL';
+    }
+    case 'bancontact':
+      return 'Bancontact';
+    case 'giropay':
+      return 'giropay';
+    case 'sofort':
+      return 'SOFORT';
+    case 'eps':
+      return 'EPS';
+    case 'p24':
+      return 'Przelewy24';
+    case 'fpx':
+      return 'FPX';
+    case 'klarna':
+      return 'Klarna';
+    case 'afterpay_clearpay':
+      return 'Afterpay / Clearpay';
+    case 'affirm':
+      return 'Affirm';
+    case 'zip':
+      return 'Zip';
+    case 'alipay':
+      return 'Alipay';
+    case 'wechat_pay':
+      return 'WeChat Pay';
+    case 'cashapp': {
+      const tag = (d?.cashtag as string | undefined) ?? '';
+      return tag ? `Cash App (${tag})` : 'Cash App';
+    }
+    case 'paypal': {
+      const email = pm.billingDetails?.email ?? '';
+      return email ? `PayPal (${email})` : 'PayPal';
+    }
+    case 'link':
+      return 'Link';
+    case 'amazon_pay':
+      return 'Amazon Pay';
+    case 'revolut_pay':
+      return 'Revolut Pay';
+    case 'mobilepay':
+      return 'MobilePay';
+    case 'boleto':
+      return 'Boleto';
+    case 'oxxo':
+      return 'OXXO';
+    case 'multibanco':
+      return 'Multibanco';
+    case 'konbini':
+      return 'Konbini';
+    default:
+      return pm.type.replace(/_/g, ' ');
+  }
 }
+
+function getPaymentMethodSubtitle(pm: PaymentMethod): string | null {
+  if (pm.type === 'card') {
+    if (pm.cardWalletType) {
+      return pm.cardWalletType === 'apple_pay' ? 'Apple Pay'
+        : pm.cardWalletType === 'google_pay' ? 'Google Pay'
+        : pm.cardWalletType.replace(/_/g, ' ');
+    }
+    if (pm.expMonth && pm.expYear) {
+      return `Expires ${String(pm.expMonth).padStart(2, '0')}/${pm.expYear}`;
+    }
+  }
+  if (pm.country) return pm.country;
+  return null;
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PaymentMethodsPage() {
   const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
@@ -126,49 +216,55 @@ export default function PaymentMethodsPage() {
         </div>
       ) : paymentMethods.length === 0 ? (
         <div className="card text-center py-8 text-gray-500">
-          No saved payment methods. Click "Add Payment Method" to save one.
+          No saved payment methods. Click &quot;Add Payment Method&quot; to save one.
         </div>
       ) : (
         <div className="space-y-3">
-          {paymentMethods.map((pm) => (
-            <div
-              key={pm.id}
-              className={`card flex items-center gap-4 ${pm.isDefault ? 'ring-2 ring-primary-500' : ''}`}
-            >
-              <CardBrand brand={pm.brand} />
-              <div className="flex-1">
-                <p className="font-medium text-gray-900">
-                  •••• {pm.last4}
-                  {pm.isDefault && (
-                    <span className="ml-2 text-xs text-primary-600 font-semibold">Default</span>
-                  )}
-                </p>
-                {pm.expMonth && pm.expYear && (
-                  <p className="text-sm text-gray-500">
-                    Expires {pm.expMonth}/{pm.expYear}
+          {paymentMethods.map((pm) => {
+            const label = getPaymentMethodLabel(pm);
+            const subtitle = getPaymentMethodSubtitle(pm);
+            return (
+              <div
+                key={pm.id}
+                className={`card flex items-center gap-4 ${pm.isDefault ? 'ring-2 ring-primary-500' : ''}`}
+              >
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 whitespace-nowrap">
+                  {pm.type === 'card' && pm.brand
+                    ? pm.brand.charAt(0).toUpperCase() + pm.brand.slice(1)
+                    : pm.type.replace(/_/g, ' ')}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-gray-900 truncate">
+                    {label}
+                    {pm.isDefault && (
+                      <span className="ml-2 text-xs text-primary-600 font-semibold">Default</span>
+                    )}
                   </p>
-                )}
-              </div>
-              <div className="flex gap-2">
-                {!pm.isDefault && (
+                  {subtitle && (
+                    <p className="text-sm text-gray-500">{subtitle}</p>
+                  )}
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  {!pm.isDefault && (
+                    <button
+                      onClick={() => setDefault({ id: pm.id, customerId })}
+                      disabled={isSettingDefault}
+                      className="text-sm text-primary-600 hover:text-primary-800 disabled:opacity-50"
+                    >
+                      Set default
+                    </button>
+                  )}
                   <button
-                    onClick={() => setDefault({ id: pm.id, customerId })}
-                    disabled={isSettingDefault}
-                    className="text-sm text-primary-600 hover:text-primary-800 disabled:opacity-50"
+                    onClick={() => detach({ id: pm.id, customerId })}
+                    disabled={isDetaching}
+                    className="text-sm text-red-500 hover:text-red-700 disabled:opacity-50"
                   >
-                    Set default
+                    Remove
                   </button>
-                )}
-                <button
-                  onClick={() => detach({ id: pm.id, customerId })}
-                  disabled={isDetaching}
-                  className="text-sm text-red-500 hover:text-red-700 disabled:opacity-50"
-                >
-                  Remove
-                </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -37,6 +37,21 @@ export class StripePaymentMethod {
   @Column({ name: 'FINGERPRINT', type: 'varchar2', length: 100, nullable: true })
   fingerprint?: string;
 
+  @Column({ name: 'DETAILS', type: 'clob', nullable: true })
+  details?: string;
+
+  @Column({ name: 'BILLING_DETAILS', type: 'clob', nullable: true })
+  billingDetails?: string;
+
+  @Column({ name: 'CARD_WALLET_TYPE', type: 'varchar2', length: 50, nullable: true })
+  cardWalletType?: string;
+
+  @Column({ name: 'COUNTRY', type: 'varchar2', length: 2, nullable: true })
+  country?: string;
+
+  @Column({ name: 'FUNDING', type: 'varchar2', length: 20, nullable: true })
+  funding?: string;
+
   @ManyToOne(() => StripeCustomer, (c) => c.paymentMethods)
   @JoinColumn({ name: 'CUSTOMER_ID' })
   customer: StripeCustomer;

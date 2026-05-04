@@ -39,7 +39,15 @@ export class PaymentIntentHandler {
         break;
 
       case 'payment_intent.processing':
-        await this.paymentIntentsService.updateStatus(pi.id, 'processing');
+        await this.paymentIntentsService.updateStatus(
+          pi.id,
+          'processing',
+          undefined,
+          undefined,
+          undefined,
+          pi.next_action ? JSON.stringify(pi.next_action) : undefined,
+          pi.amount_received,
+        );
         break;
 
       case 'payment_intent.requires_action':

@@ -13,6 +13,7 @@ function getAuthHeader(): Record<string, string> {
 interface CreateSetupIntentInput {
   customerId: string;
   paymentMethodTypes?: string[];
+  usage?: 'off_session' | 'on_session';
 }
 
 interface SetupIntentResult {

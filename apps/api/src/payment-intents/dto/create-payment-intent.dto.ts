@@ -1,6 +1,7 @@
 import {
   IsInt,
   IsString,
+  IsEmail,
   IsUUID,
   IsOptional,
   IsEnum,
@@ -28,6 +29,15 @@ export class CreatePaymentIntentDto {
   @IsOptional()
   @IsEnum(['on_session', 'off_session'])
   setupFutureUsage?: 'on_session' | 'off_session';
+
+  @IsOptional()
+  @IsEmail()
+  receiptEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(22) // Stripe enforces 22-character limit
+  statementDescriptor?: string;
 
   @IsOptional()
   @IsObject()

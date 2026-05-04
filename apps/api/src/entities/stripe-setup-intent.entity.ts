@@ -41,6 +41,21 @@ export class StripeSetupIntent {
   @Column({ name: 'DESCRIPTION', type: 'varchar2', length: 4000, nullable: true })
   description?: string;
 
+  @Column({ name: 'PAYMENT_METHOD_TYPES', type: 'varchar2', length: 500, nullable: true })
+  paymentMethodTypes?: string;
+
+  @Column({ name: 'USAGE', type: 'varchar2', length: 20, nullable: true })
+  usage?: string;
+
+  @Column({ name: 'LAST_SETUP_ERROR', type: 'clob', nullable: true })
+  lastSetupError?: string;
+
+  @Column({ name: 'NEXT_ACTION', type: 'clob', nullable: true })
+  nextAction?: string;
+
+  @Column({ name: 'LIVEMODE', type: 'number', width: 1, default: 0 })
+  livemode: boolean;
+
   @CreateDateColumn({ name: 'CREATED_AT', type: 'timestamp' })
   createdAt: Date;
 

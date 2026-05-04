@@ -14,6 +14,7 @@ import { SubscriptionHandler } from './handlers/subscription.handler';
 import { InvoiceHandler } from './handlers/invoice.handler';
 import { PaymentMethodHandler } from './handlers/payment-method.handler';
 import { CustomerHandler } from './handlers/customer.handler';
+import { MandateHandler } from './handlers/mandate.handler';
 import { WebhookSignatureGuard } from '../common/guards/webhook-signature.guard';
 
 @Module({
@@ -34,6 +35,7 @@ import { WebhookSignatureGuard } from '../common/guards/webhook-signature.guard'
     InvoiceHandler,
     PaymentMethodHandler,
     CustomerHandler,
+    MandateHandler,
     WebhookSignatureGuard,
   ],
 })

@@ -4,6 +4,7 @@ import {
   IsArray,
   IsString,
   IsObject,
+  IsIn,
   MaxLength,
 } from 'class-validator';
 
@@ -15,6 +16,10 @@ export class CreateSetupIntentDto {
   @IsArray()
   @IsString({ each: true })
   paymentMethodTypes?: string[];
+
+  @IsOptional()
+  @IsIn(['off_session', 'on_session'])
+  usage?: 'off_session' | 'on_session';
 
   @IsOptional()
   @IsObject()

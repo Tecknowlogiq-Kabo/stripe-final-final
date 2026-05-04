@@ -4,6 +4,8 @@ export interface CreatePaymentIntentDto {
   customerId: string;
   paymentMethodId?: string;
   setupFutureUsage?: 'on_session' | 'off_session';
+  receiptEmail?: string;
+  statementDescriptor?: string;
   metadata?: Record<string, string>;
   description?: string;
 }
@@ -16,6 +18,14 @@ export interface PaymentIntentResponse {
   currency: string;
   status: string;
   customerId: string;
+  setupFutureUsage?: string;
+  paymentMethodTypes?: string[];
+  amountReceived?: number;
+  amountCapturable?: number;
+  nextAction?: Record<string, unknown>;
+  receiptEmail?: string;
+  statementDescriptor?: string;
+  livemode?: boolean;
   createdAt: string;
 }
 

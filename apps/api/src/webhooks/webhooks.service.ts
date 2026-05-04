@@ -12,6 +12,7 @@ import { SubscriptionHandler } from './handlers/subscription.handler';
 import { InvoiceHandler } from './handlers/invoice.handler';
 import { PaymentMethodHandler } from './handlers/payment-method.handler';
 import { CustomerHandler } from './handlers/customer.handler';
+import { MandateHandler } from './handlers/mandate.handler';
 
 @Injectable()
 export class WebhooksService {
@@ -26,6 +27,7 @@ export class WebhooksService {
     private readonly invoiceHandler: InvoiceHandler,
     private readonly paymentMethodHandler: PaymentMethodHandler,
     private readonly customerHandler: CustomerHandler,
+    private readonly mandateHandler: MandateHandler,
   ) {}
 
   async processEvent(event: Stripe.Event): Promise<void> {
@@ -130,6 +132,10 @@ export class WebhooksService {
       case 'customer.updated':
       case 'customer.deleted':
         return this.customerHandler.handle(event);
+
+      // Mandate events — sync attached payment method on mandate state changes
+      case 'mandate.updated':
+        return this.mandateHandler.handle(event);
 
       default:
         this.logger.warn({
