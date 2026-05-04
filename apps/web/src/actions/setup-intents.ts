@@ -1,8 +1,14 @@
 'use server';
 
 import { v4 as uuidv4 } from 'uuid';
+import { cookies } from 'next/headers';
 
 const API_URL = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+
+function getAuthHeader(): Record<string, string> {
+  const token = cookies().get('auth_token')?.value;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 interface CreateSetupIntentInput {
   customerId: string;
@@ -26,6 +32,7 @@ export async function createSetupIntent(
     headers: {
       'Content-Type': 'application/json',
       'Idempotency-Key': idempotencyKey,
+      ...getAuthHeader(),
     },
     body: JSON.stringify(input),
     cache: 'no-store',

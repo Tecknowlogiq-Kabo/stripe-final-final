@@ -1,21 +1,32 @@
+// MUST be first — patches Node.js internals before any other import
+import './instrumentation';
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
+import { Logger } from 'nestjs-pino';
 import helmet from 'helmet';
 import compression from 'compression';
+import * as express from 'express';
 import { AppModule } from './app.module';
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection', reason);
+  process.exit(1);
+});
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
+    // bufferLogs: true lets pino flush queued bootstrap logs once the logger
+    // is fully initialised — prevents losing early-startup log lines.
     bufferLogs: true,
     // rawBody: true is CRITICAL for Stripe webhook signature verification
     // It makes req.rawBody (Buffer) available before JSON parsing
     rawBody: true,
   });
 
-  // Swap NestJS logger for Winston
-  app.useLogger(app.get(WINSTON_MODULE_NEST_PROVIDER));
+  // Swap NestJS default logger for pino
+  app.useLogger(app.get(Logger));
 
   const configService = app.get(ConfigService);
   const apiPrefix = configService.get<string>('apiPrefix') ?? 'api/v1';
@@ -24,6 +35,11 @@ async function bootstrap() {
 
   app.setGlobalPrefix(apiPrefix);
   app.enableVersioning({ type: VersioningType.URI });
+
+  // Limit request body size — prevents DoS via oversized payloads
+  // Webhook raw body is captured by NestFactory rawBody:true before this applies
+  app.use(express.json({ limit: '100kb' }));
+  app.use(express.urlencoded({ extended: false, limit: '100kb' }));
 
   // Helmet with production-grade CSP scoped to Stripe's required origins
   app.use(
@@ -37,8 +53,8 @@ async function bootstrap() {
           scriptSrc: ["'self'", 'https://js.stripe.com'],
           // API calls to our backend and Stripe
           connectSrc: ["'self'", 'https://api.stripe.com'],
-          imgSrc: ["'self'", 'data:', 'https:'],
-          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:'],
+          styleSrc: ["'self'"],
           fontSrc: ["'self'", 'data:'],
         },
       },
@@ -76,6 +92,19 @@ async function bootstrap() {
     }),
   );
 
+  // Swagger — dev/staging only; never exposed in production
+  if (configService.get<string>('NODE_ENV') !== 'production') {
+    const { SwaggerModule, DocumentBuilder } = await import('@nestjs/swagger');
+    const config = new DocumentBuilder()
+      .setTitle('Stripe Integration API')
+      .setDescription('NestJS backend for Stripe payments, subscriptions, and webhooks')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
+
   const server = await app.listen(port);
 
   // Keep-alive timeout must exceed the load balancer idle timeout (AWS ALB default: 60s)
@@ -83,7 +112,7 @@ async function bootstrap() {
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 66_000;
 
-  const logger = app.get(WINSTON_MODULE_NEST_PROVIDER);
+  const logger = app.get(Logger);
   logger.log(`Application running on port ${port}`, 'Bootstrap');
 
   // Graceful shutdown — NestJS closes DB connections, pending requests, etc.

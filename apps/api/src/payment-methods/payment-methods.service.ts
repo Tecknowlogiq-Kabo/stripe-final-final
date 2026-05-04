@@ -21,12 +21,19 @@ export class PaymentMethodsService {
     private readonly customersService: CustomersService,
   ) {}
 
-  async listByCustomer(customerId: string): Promise<StripePaymentMethod[]> {
+  async listByCustomer(
+    customerId: string,
+    page = 1,
+    limit = 20,
+  ): Promise<{ data: StripePaymentMethod[]; total: number; page: number; limit: number }> {
     await this.customersService.findById(customerId); // verify customer exists
-    return this.pmRepo.find({
+    const [data, total] = await this.pmRepo.findAndCount({
       where: { customer: { id: customerId } },
       order: { isDefault: 'DESC', createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+    return { data, total, page, limit };
   }
 
   async detach(id: string): Promise<void> {

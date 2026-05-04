@@ -8,6 +8,7 @@ import { StripeSetupIntent } from '../entities/stripe-setup-intent.entity';
 import { StripeSubscription } from '../entities/stripe-subscription.entity';
 import { StripeWebhookEvent } from '../entities/stripe-webhook-event.entity';
 import { SubscriptionPlan } from '../entities/subscription-plan.entity';
+import { User } from '../entities/user.entity';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { SubscriptionPlan } from '../entities/subscription-plan.entity';
           StripeSubscription,
           StripeWebhookEvent,
           SubscriptionPlan,
+          User,
         ],
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         synchronize: false, // NEVER true in production — use migrations only

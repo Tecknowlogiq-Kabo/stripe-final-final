@@ -1,4 +1,5 @@
 import { createApi, fetchBaseQuery, FetchBaseQueryError } from '@reduxjs/toolkit/query/react';
+import type { RootState } from './index';
 
 /**
  * Root RTK Query API slice — all feature slices extend this via `injectEndpoints`.
@@ -12,8 +13,12 @@ export const baseApi = createApi({
   reducerPath: 'api',
   baseQuery: fetchBaseQuery({
     baseUrl: `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/v1`,
-    prepareHeaders: (headers) => {
+    prepareHeaders: (headers, { getState }) => {
       headers.set('Content-Type', 'application/json');
+      const token = (getState() as RootState).auth?.token;
+      if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+      }
       return headers;
     },
     responseHandler: async (response) => {

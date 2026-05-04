@@ -28,6 +28,8 @@ export const LoggingModule = WinstonModule.forRootAsync({
             new winston.transports.File({
               filename: 'logs/error.log',
               level: 'error',
+              maxsize: 10 * 1024 * 1024, // 10 MB per file
+              maxFiles: 5,
               format: winston.format.combine(
                 winston.format.timestamp(),
                 winston.format.json(),
@@ -35,6 +37,8 @@ export const LoggingModule = WinstonModule.forRootAsync({
             }),
             new winston.transports.File({
               filename: 'logs/combined.log',
+              maxsize: 50 * 1024 * 1024, // 50 MB per file
+              maxFiles: 5,
               format: winston.format.combine(
                 winston.format.timestamp(),
                 winston.format.json(),

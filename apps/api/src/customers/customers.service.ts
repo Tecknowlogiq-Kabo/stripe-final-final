@@ -39,7 +39,7 @@ export class CustomersService {
       where: { email: dto.email, isDeleted: false },
     });
     if (emailExists) {
-      throw new ConflictException(`Customer with email ${dto.email} already exists`);
+      throw new ConflictException('A customer with this email already exists');
     }
 
     const stripeCustomer = await this.stripeService.customers.create(
@@ -55,7 +55,6 @@ export class CustomersService {
     this.logger.log({
       message: 'Stripe customer created',
       stripeCustomerId: stripeCustomer.id,
-      email: dto.email,
     });
 
     const customer = this.customerRepo.create({

@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { Public } from '../auth/decorators/public.decorator';
 import {
   HealthCheck,
   HealthCheckService,
@@ -15,6 +16,7 @@ export class HealthController {
     private readonly http: HttpHealthIndicator,
   ) {}
 
+  @Public()
   @Get()
   @HealthCheck()
   check(): Promise<HealthCheckResult> {

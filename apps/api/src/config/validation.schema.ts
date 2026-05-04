@@ -24,4 +24,5 @@ export const validationSchema = Joi.object({
   CORS_ORIGIN: Joi.string().required(),
   THROTTLE_TTL: Joi.number().default(60),
   THROTTLE_LIMIT: Joi.number().default(100),
+  JWT_SECRET: Joi.string().min(32).required(),
 });

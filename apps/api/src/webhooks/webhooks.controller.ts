@@ -10,6 +10,7 @@ import Stripe from 'stripe';
 import { WebhooksService } from './webhooks.service';
 import { WebhookSignatureGuard } from '../common/guards/webhook-signature.guard';
 import { StripeEvent } from '../common/decorators/stripe-event.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 
 // Webhook endpoints must NOT be rate-limited (Stripe needs guaranteed delivery)
 // The global ThrottlerGuard is bypassed here because WebhookSignatureGuard runs first
@@ -19,6 +20,7 @@ export class WebhooksController {
 
   constructor(private readonly webhooksService: WebhooksService) {}
 
+  @Public()
   @Post('stripe')
   @HttpCode(HttpStatus.OK)
   @UseGuards(WebhookSignatureGuard)

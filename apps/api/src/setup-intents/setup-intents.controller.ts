@@ -9,6 +9,7 @@ import {
   HttpStatus,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { SetupIntentsService } from './setup-intents.service';
 import { CreateSetupIntentDto } from './dto/create-setup-intent.dto';
 import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator';
@@ -19,6 +20,7 @@ export class SetupIntentsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ payment: { limit: 20, ttl: 60_000 } })
   create(
     @Body() dto: CreateSetupIntentDto,
     @IdempotencyKey() idempotencyKey: string,

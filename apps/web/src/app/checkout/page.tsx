@@ -6,15 +6,29 @@ interface CheckoutPageProps {
   searchParams: { amount?: string; currency?: string; customerId?: string };
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export default async function CheckoutPage({ searchParams }: CheckoutPageProps) {
-  const amount = Number(searchParams.amount ?? 2000); // default $20.00
-  const currency = searchParams.currency ?? 'usd';
+  const rawAmount = searchParams.amount;
+  const rawCurrency = searchParams.currency;
+  const rawCustomerId = searchParams.customerId;
+
+  // Validate and sanitize searchParams to prevent injection via URL manipulation
+  const amount =
+    rawAmount && /^\d+$/.test(rawAmount)
+      ? Math.max(50, parseInt(rawAmount, 10))
+      : 2000; // default $20.00
+  const currency =
+    rawCurrency && /^[a-z]{3}$/.test(rawCurrency) ? rawCurrency : 'usd';
+  const customerId =
+    rawCustomerId && UUID_RE.test(rawCustomerId) ? rawCustomerId : undefined;
 
   let clientSecret: string;
   let error: string | null = null;
 
   try {
-    const result = await createPaymentIntent({ amount, currency });
+    const result = await createPaymentIntent({ amount, currency, customerId });
     clientSecret = result.clientSecret;
   } catch (err) {
     error = err instanceof Error ? err.message : 'Failed to initialize checkout';

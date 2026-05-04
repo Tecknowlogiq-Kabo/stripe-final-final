@@ -1,11 +1,18 @@
 'use server';
 
 import { v4 as uuidv4 } from 'uuid';
+import { cookies } from 'next/headers';
 
 const API_URL = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
+function getAuthHeader(): Record<string, string> {
+  const token = cookies().get('auth_token')?.value;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function getSubscriptionPlans() {
   const response = await fetch(`${API_URL}/api/v1/subscriptions/plans`, {
+    headers: getAuthHeader(),
     next: { revalidate: 3600 }, // cache for 1 hour
   });
   if (!response.ok) throw new Error('Failed to fetch plans');
@@ -24,6 +31,7 @@ export async function createSubscription(input: {
     headers: {
       'Content-Type': 'application/json',
       'Idempotency-Key': idempotencyKey,
+      ...getAuthHeader(),
     },
     body: JSON.stringify(input),
     cache: 'no-store',
@@ -38,6 +46,7 @@ export async function createSubscription(input: {
 export async function cancelSubscription(id: string) {
   const response = await fetch(`${API_URL}/api/v1/subscriptions/${id}`, {
     method: 'DELETE',
+    headers: getAuthHeader(),
     cache: 'no-store',
   });
   if (!response.ok) throw new Error('Failed to cancel subscription');
@@ -47,7 +56,10 @@ export async function cancelSubscription(id: string) {
 export async function getCustomerSubscriptions(customerId: string) {
   const response = await fetch(
     `${API_URL}/api/v1/subscriptions/customer/${customerId}`,
-    { cache: 'no-store' },
+    {
+      headers: getAuthHeader(),
+      cache: 'no-store',
+    },
   );
   if (!response.ok) throw new Error('Failed to fetch subscriptions');
   return response.json();

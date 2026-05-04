@@ -24,4 +24,8 @@ export default () => ({
   cors: {
     origin: process.env.CORS_ORIGIN ?? 'http://localhost:3000',
   },
+  jwt: {
+    secret: process.env.JWT_SECRET,
+    expiresIn: '15m',
+  },
 });

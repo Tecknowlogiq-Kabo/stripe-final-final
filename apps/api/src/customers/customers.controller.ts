@@ -10,6 +10,7 @@ import {
   HttpStatus,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
@@ -21,6 +22,7 @@ export class CustomersController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ payment: { limit: 20, ttl: 60_000 } })
   create(
     @Body() dto: CreateCustomerDto,
     @IdempotencyKey() idempotencyKey: string,

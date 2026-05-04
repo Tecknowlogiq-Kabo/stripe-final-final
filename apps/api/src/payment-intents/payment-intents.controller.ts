@@ -10,6 +10,7 @@ import {
   HttpStatus,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { PaymentIntentsService } from './payment-intents.service';
 import { CreatePaymentIntentDto } from './dto/create-payment-intent.dto';
 import { UpdatePaymentIntentDto } from './dto/update-payment-intent.dto';
@@ -21,6 +22,7 @@ export class PaymentIntentsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @Throttle({ payment: { limit: 20, ttl: 60_000 } })
   create(
     @Body() dto: CreatePaymentIntentDto,
     @IdempotencyKey() idempotencyKey: string,

@@ -114,11 +114,18 @@ export class SubscriptionsService {
     return this.subRepo.findOne({ where: { stripeSubscriptionId } });
   }
 
-  async listByCustomer(customerId: string): Promise<StripeSubscription[]> {
-    return this.subRepo.find({
+  async listByCustomer(
+    customerId: string,
+    page = 1,
+    limit = 20,
+  ): Promise<{ data: StripeSubscription[]; total: number; page: number; limit: number }> {
+    const [data, total] = await this.subRepo.findAndCount({
       where: { customer: { id: customerId } },
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+    return { data, total, page, limit };
   }
 
   async update(

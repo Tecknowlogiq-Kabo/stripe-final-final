@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Param, Query, ParseIntPipe, ParseUUIDPipe } from '@nestjs/common';
 import { ReportingService } from './reporting.service';
 
 @Controller('reports')
@@ -21,7 +21,7 @@ export class ReportingController {
   }
 
   @Get('customers/:customerId/ltv')
-  getCustomerLtv(@Param('customerId') customerId: string) {
+  getCustomerLtv(@Param('customerId', ParseUUIDPipe) customerId: string) {
     return this.reportingService.getCustomerLtv(customerId);
   }
 

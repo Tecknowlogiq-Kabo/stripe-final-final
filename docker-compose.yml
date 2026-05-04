@@ -32,17 +32,32 @@ services:
     environment:
       NODE_ENV: development
       ORACLE_HOST: oracle
+      OTEL_SERVICE_NAME: stripe-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    depends_on:
+      oracle:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
     ports:
       - "3001:3001"
     volumes:
       - ./apps/api:/app
       - /app/node_modules
-    depends_on:
-      oracle:
-        condition: service_healthy
     networks:
       - stripe_net
     command: npm run start:dev
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    container_name: stripe_jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4318:4318"     # OTLP HTTP receiver
+    networks:
+      - stripe_net
 
   web:
     build:

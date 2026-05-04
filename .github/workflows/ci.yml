@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build all packages
+        run: npx turbo run build
+
+      - name: Lint all packages
+        run: npx turbo run lint
+
+      - name: Run tests
+        run: npx turbo run test
+        env:
+          NODE_ENV: test
+          # Stub values — unit tests must not require live services
+          ORACLE_USER: test
+          ORACLE_PASSWORD: test
+          ORACLE_HOST: localhost
+          ORACLE_PORT: 1521
+          ORACLE_SERVICE_NAME: XEPDB1
+          STRIPE_SECRET_KEY: sk_test_placeholder_ci
+          STRIPE_WEBHOOK_SECRET: whsec_placeholder_ci
+          CORS_ORIGIN: http://localhost:3000
+          JWT_SECRET: ci_test_secret_minimum_32_chars_long

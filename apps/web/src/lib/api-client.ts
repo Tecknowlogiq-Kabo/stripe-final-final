@@ -1,3 +1,5 @@
+import { cookies } from 'next/headers';
+
 const API_URL =
   typeof window === 'undefined'
     ? process.env.API_URL           // server-side: Docker internal URL
@@ -14,6 +16,17 @@ export class ApiError extends Error {
   }
 }
 
+/** Returns Authorization header value from httpOnly cookie (server-side only). */
+function getAuthHeader(): Record<string, string> {
+  try {
+    const token = cookies().get('auth_token')?.value;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    // cookies() throws outside of Server Component/Action context — safe to ignore
+    return {};
+  }
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -22,6 +35,7 @@ async function request<T>(
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...getAuthHeader(),
       ...options.headers,
     },
     cache: 'no-store',
