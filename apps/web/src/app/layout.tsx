@@ -23,6 +23,7 @@ export default function RootLayout({
               </a>
               <div className="flex gap-6 text-sm font-medium text-gray-600">
                 <a href="/checkout" className="hover:text-primary-600">Checkout</a>
+                <a href="/payments" className="hover:text-primary-600">Payments</a>
                 <a href="/subscriptions" className="hover:text-primary-600">Subscriptions</a>
                 <a href="/payment-methods" className="hover:text-primary-600">Payment Methods</a>
               </div>

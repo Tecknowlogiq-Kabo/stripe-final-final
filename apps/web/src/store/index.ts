@@ -7,6 +7,7 @@ import './apis/customersApi';
 import './apis/paymentMethodsApi';
 import './apis/subscriptionsApi';
 import './apis/authApi';
+import './apis/paymentIntentsApi';
 
 export const store = configureStore({
   reducer: {

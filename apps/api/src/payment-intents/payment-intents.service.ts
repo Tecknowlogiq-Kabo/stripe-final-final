@@ -4,12 +4,13 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, FindOptionsWhere, Between } from 'typeorm';
 import { StripePaymentIntent } from '../entities/stripe-payment-intent.entity';
 import { StripeService } from '../stripe/stripe.service';
 import { CustomersService } from '../customers/customers.service';
 import { CreatePaymentIntentDto } from './dto/create-payment-intent.dto';
 import { UpdatePaymentIntentDto } from './dto/update-payment-intent.dto';
+import { ListPaymentIntentsDto } from './dto/list-payment-intents.dto';
 
 @Injectable()
 export class PaymentIntentsService {
@@ -115,6 +116,41 @@ export class PaymentIntentsService {
 
   async findByStripeId(stripePaymentIntentId: string): Promise<StripePaymentIntent | null> {
     return this.piRepo.findOne({ where: { stripePaymentIntentId } });
+  }
+
+  async findByCustomer(
+    customerId: string,
+    dto: ListPaymentIntentsDto,
+  ): Promise<{ data: StripePaymentIntent[]; total: number; page: number; limit: number }> {
+    const page = dto.page ?? 1;
+    const limit = dto.limit ?? 20;
+    const { offset, status, dateFrom, dateTo, sortBy, sortOrder } = dto;
+
+    const where: FindOptionsWhere<StripePaymentIntent> = {
+      customer: { id: customerId },
+    };
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (dateFrom && dateTo) {
+      where.createdAt = Between(new Date(dateFrom), new Date(dateTo));
+    } else if (dateFrom) {
+      where.createdAt = Between(new Date(dateFrom), new Date());
+    } else if (dateTo) {
+      where.createdAt = Between(new Date('1970-01-01'), new Date(dateTo));
+    }
+
+    const [data, total] = await this.piRepo.findAndCount({
+      where,
+      order: { [sortBy!]: sortOrder },
+      skip: offset,
+      take: limit,
+      relations: ['customer'],
+    });
+
+    return { data, total, page, limit };
   }
 
   async update(
