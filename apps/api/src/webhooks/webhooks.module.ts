@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { StripeWebhookEvent } from '../entities/stripe-webhook-event.entity';
 import { CustomersModule } from '../customers/customers.module';
 import { PaymentIntentsModule } from '../payment-intents/payment-intents.module';
 import { SetupIntentsModule } from '../setup-intents/setup-intents.module';
@@ -19,7 +17,6 @@ import { WebhookSignatureGuard } from '../common/guards/webhook-signature.guard'
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([StripeWebhookEvent]),
     CustomersModule,
     PaymentIntentsModule,
     SetupIntentsModule,
