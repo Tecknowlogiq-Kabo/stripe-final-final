@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Response, Request } from 'express';
+import { sanitizePath } from '../../logging/sanitize';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -35,7 +36,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         error: exception instanceof Error ? exception.message : String(exception),
         stack: exception instanceof Error ? exception.stack : undefined,
         correlationId: request.correlationId,
-        path: request.url,
+        path: sanitizePath(request.url),
       });
     }
 

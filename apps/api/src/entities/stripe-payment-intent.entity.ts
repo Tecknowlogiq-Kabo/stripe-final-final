@@ -31,6 +31,9 @@ export class StripePaymentIntent {
   @Column({ name: 'CLIENT_SECRET', type: 'varchar2', length: 500 })
   clientSecret: string;
 
+  @Column({ name: 'CUSTOMER_ID', type: 'varchar2', length: 36 })
+  customerId: string;
+
   @ManyToOne(() => StripeCustomer, (c) => c.paymentIntents)
   @JoinColumn({ name: 'CUSTOMER_ID' })
   customer: StripeCustomer;

@@ -52,6 +52,9 @@ export class StripePaymentMethod {
   @Column({ name: 'FUNDING', type: 'varchar2', length: 20, nullable: true })
   funding?: string;
 
+  @Column({ name: 'CUSTOMER_ID', type: 'varchar2', length: 36 })
+  customerId: string;
+
   @ManyToOne(() => StripeCustomer, (c) => c.paymentMethods)
   @JoinColumn({ name: 'CUSTOMER_ID' })
   customer: StripeCustomer;

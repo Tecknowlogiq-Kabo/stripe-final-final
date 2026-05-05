@@ -8,18 +8,15 @@ import { DataSource } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { StripeSubscription } from '../entities/stripe-subscription.entity';
 import { SubscriptionPlan } from '../entities/subscription-plan.entity';
+import { StripeCustomer } from '../entities/stripe-customer.entity';
 import { StripeService } from '../stripe/stripe.service';
 import { CustomersService } from '../customers/customers.service';
 import { RedisService, CacheKeys, CacheTtl } from '../redis/redis.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import Stripe from 'stripe';
-
-const SUB_SELECT = `ID AS "id", STRIPE_SUB_ID AS "stripeSubscriptionId", STATUS AS "status", CURRENT_PERIOD_START AS "currentPeriodStart", CURRENT_PERIOD_END AS "currentPeriodEnd", CANCEL_AT_PERIOD_END AS "cancelAtPeriodEnd", TRIAL_END AS "trialEnd", TRIAL_START AS "trialStart", STRIPE_PRICE_ID AS "stripePriceId", DEFAULT_PM_ID AS "defaultPaymentMethodId", CUSTOMER_ID AS "customerId", METADATA AS "metadata", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
-
-const CUSTOMER_SELECT = `ID AS "id", STRIPE_CUSTOMER_ID AS "stripeCustomerId", EMAIL AS "email", NAME AS "name", PHONE AS "phone", METADATA AS "metadata", IDEMPOTENCY_KEY AS "idempotencyKey", IS_DELETED AS "isDeleted", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
-
-const PLAN_SELECT = `ID AS "id", STRIPE_PRICE_ID AS "stripePriceId", STRIPE_PRODUCT_ID AS "stripeProductId", NAME AS "name", DESCRIPTION AS "description", AMOUNT AS "amount", CURRENCY AS "currency", INTERVAL_TYPE AS "interval", INTERVAL_COUNT AS "intervalCount", IS_ACTIVE AS "isActive", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
+import { SUB_SELECT, CUSTOMER_SELECT, PLAN_SELECT } from '../database/query-constants';
+import { withTransaction } from '../database/transaction.helper';
 
 @Injectable()
 export class SubscriptionsService {
@@ -80,31 +77,28 @@ export class SubscriptionsService {
     });
 
     const id = randomUUID();
-    const runner = this.dataSource.createQueryRunner();
-    await runner.connect();
-    await runner.startTransaction();
     try {
-      await runner.query(
-        `INSERT INTO STRIPE_SUBSCRIPTIONS (ID, STRIPE_SUB_ID, STATUS, CURRENT_PERIOD_START, CURRENT_PERIOD_END, CANCEL_AT_PERIOD_END, TRIAL_START, TRIAL_END, STRIPE_PRICE_ID, DEFAULT_PM_ID, CUSTOMER_ID, METADATA, CREATED_AT, UPDATED_AT)
-         VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, SYSDATE, SYSDATE)`,
-        [
-          id,
-          stripeSub.id,
-          stripeSub.status,
-          new Date(stripeSub.current_period_start * 1000),
-          new Date(stripeSub.current_period_end * 1000),
-          stripeSub.cancel_at_period_end ? 1 : 0,
-          stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : null,
-          stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null,
-          dto.priceId,
-          dto.paymentMethodId ?? null,
-          customer.id,
-          dto.metadata ? JSON.stringify(dto.metadata) : null,
-        ],
-      );
-      await runner.commitTransaction();
+      await withTransaction(this.dataSource, async (runner) => {
+        await runner.query(
+          `INSERT INTO STRIPE_SUBSCRIPTIONS (ID, STRIPE_SUB_ID, STATUS, CURRENT_PERIOD_START, CURRENT_PERIOD_END, CANCEL_AT_PERIOD_END, TRIAL_START, TRIAL_END, STRIPE_PRICE_ID, DEFAULT_PM_ID, CUSTOMER_ID, METADATA, CREATED_AT, UPDATED_AT)
+           VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, SYSDATE, SYSDATE)`,
+          [
+            id,
+            stripeSub.id,
+            stripeSub.status,
+            new Date(stripeSub.current_period_start * 1000),
+            new Date(stripeSub.current_period_end * 1000),
+            stripeSub.cancel_at_period_end ? 1 : 0,
+            stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : null,
+            stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null,
+            dto.priceId,
+            dto.paymentMethodId ?? null,
+            customer.id,
+            dto.metadata ? JSON.stringify(dto.metadata) : null,
+          ],
+        );
+      });
     } catch (err) {
-      await runner.rollbackTransaction();
       // Prevent orphaned Stripe subscription when local insert fails
       this.stripeService.subscriptions.cancel(stripeSub.id).catch((cleanupErr: Error) =>
         this.logger.error({
@@ -114,8 +108,6 @@ export class SubscriptionsService {
         }),
       );
       throw err;
-    } finally {
-      await runner.release();
     }
 
     return this.findById(id);
@@ -128,11 +120,11 @@ export class SubscriptionsService {
     );
     if (!sub) throw new NotFoundException(`Subscription ${id} not found`);
 
-    const [customer] = await this.dataSource.query<any[]>(
+    const [customer] = await this.dataSource.query<StripeCustomer[]>(
       `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE ID = :1`,
-      [(sub as any).customerId],
+      [sub.customerId],
     );
-    (sub as any).customer = customer ?? null;
+    if (customer) sub.customer = customer;
 
     return sub;
   }
@@ -200,9 +192,9 @@ export class SubscriptionsService {
     await this.dataSource.query(
       `UPDATE STRIPE_SUBSCRIPTIONS SET STRIPE_PRICE_ID = :1, DEFAULT_PM_ID = :2, CANCEL_AT_PERIOD_END = :3, STATUS = :4, UPDATED_AT = SYSDATE WHERE ID = :5`,
       [
-        dto.priceId ?? (sub as any).stripePriceId,
-        dto.paymentMethodId ?? (sub as any).defaultPaymentMethodId ?? null,
-        dto.cancelAtPeriodEnd !== undefined ? (dto.cancelAtPeriodEnd ? 1 : 0) : (sub as any).cancelAtPeriodEnd ? 1 : 0,
+        dto.priceId ?? sub.stripePriceId,
+        dto.paymentMethodId ?? sub.defaultPaymentMethodId ?? null,
+        dto.cancelAtPeriodEnd !== undefined ? (dto.cancelAtPeriodEnd ? 1 : 0) : sub.cancelAtPeriodEnd ? 1 : 0,
         updated.status,
         id,
       ],
@@ -239,9 +231,9 @@ export class SubscriptionsService {
           new Date(stripeSub.current_period_start * 1000),
           new Date(stripeSub.current_period_end * 1000),
           stripeSub.cancel_at_period_end ? 1 : 0,
-          stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : (sub as any).trialStart ?? null,
-          stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : (sub as any).trialEnd ?? null,
-          stripeSub.default_payment_method as string ?? (sub as any).defaultPaymentMethodId ?? null,
+          stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : sub.trialStart ?? null,
+          stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : sub.trialEnd ?? null,
+          (stripeSub.default_payment_method as string) ?? sub.defaultPaymentMethodId ?? null,
           sub.id,
         ],
       );
@@ -272,7 +264,7 @@ export class SubscriptionsService {
           stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : null,
           stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null,
           priceId,
-          stripeSub.default_payment_method as string ?? null,
+          (stripeSub.default_payment_method as string) ?? null,
           customer.id,
         ],
       );

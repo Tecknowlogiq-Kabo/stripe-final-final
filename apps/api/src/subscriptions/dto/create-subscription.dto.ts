@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsInt,
   Min,
+  Max,
   IsObject,
 } from 'class-validator';
 
@@ -21,6 +22,7 @@ export class CreateSubscriptionDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(999) // Stripe maximum trial period
   trialPeriodDays?: number;
 
   @IsOptional()

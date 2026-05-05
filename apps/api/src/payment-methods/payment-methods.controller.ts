@@ -52,7 +52,7 @@ export class PaymentMethodsController {
   ) {
     // Fetch PM to get customerId, then check ownership
     const pm = await this.service.findById(id);
-    await this.assertCustomerOwnership((pm as any).customerId, user.id);
+    await this.assertCustomerOwnership(pm.customerId, user.id);
     return this.service.detach(id);
   }
 

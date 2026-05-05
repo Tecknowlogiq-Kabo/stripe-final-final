@@ -77,7 +77,7 @@ export class SubscriptionsController {
     @CurrentUser() user: JwtUser,
   ) {
     const sub = await this.service.findById(id);
-    await this.assertCustomerOwnership((sub as any).customerId, user.id);
+    await this.assertCustomerOwnership(sub.customerId, user.id);
     return sub;
   }
 
@@ -89,7 +89,7 @@ export class SubscriptionsController {
     @CurrentUser() user: JwtUser,
   ) {
     const sub = await this.service.findById(id);
-    await this.assertCustomerOwnership((sub as any).customerId, user.id);
+    await this.assertCustomerOwnership(sub.customerId, user.id);
     return this.service.update(id, dto, idempotencyKey);
   }
 
@@ -100,7 +100,7 @@ export class SubscriptionsController {
     @CurrentUser() user: JwtUser,
   ) {
     const sub = await this.service.findById(id);
-    await this.assertCustomerOwnership((sub as any).customerId, user.id);
+    await this.assertCustomerOwnership(sub.customerId, user.id);
     return this.service.cancel(id);
   }
 

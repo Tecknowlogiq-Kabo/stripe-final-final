@@ -7,15 +7,13 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { StripePaymentIntent } from '../entities/stripe-payment-intent.entity';
+import { StripeCustomer } from '../entities/stripe-customer.entity';
 import { StripeService } from '../stripe/stripe.service';
 import { CustomersService } from '../customers/customers.service';
 import { CreatePaymentIntentDto } from './dto/create-payment-intent.dto';
 import { UpdatePaymentIntentDto } from './dto/update-payment-intent.dto';
 import { ListPaymentIntentsDto } from './dto/list-payment-intents.dto';
-
-const PI_SELECT = `ID AS "id", STRIPE_PI_ID AS "stripePaymentIntentId", AMOUNT AS "amount", CURRENCY AS "currency", STATUS AS "status", CLIENT_SECRET AS "clientSecret", CUSTOMER_ID AS "customerId", STRIPE_PM_ID AS "stripePaymentMethodId", IDEMPOTENCY_KEY AS "idempotencyKey", METADATA AS "metadata", DESCRIPTION AS "description", ERROR_CODE AS "errorCode", ERROR_DECLINE_CODE AS "errorDeclineCode", ERROR_MESSAGE AS "errorMessage", SETUP_FUTURE_USAGE AS "setupFutureUsage", NEXT_ACTION AS "nextAction", PAYMENT_METHOD_TYPES AS "paymentMethodTypes", AMOUNT_RECEIVED AS "amountReceived", AMOUNT_CAPTURABLE AS "amountCapturable", RECEIPT_EMAIL AS "receiptEmail", STATEMENT_DESCRIPTOR AS "statementDescriptor", LIVEMODE AS "livemode", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
-
-const CUSTOMER_SELECT = `ID AS "id", STRIPE_CUSTOMER_ID AS "stripeCustomerId", EMAIL AS "email", NAME AS "name", PHONE AS "phone", METADATA AS "metadata", IDEMPOTENCY_KEY AS "idempotencyKey", IS_DELETED AS "isDeleted", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
+import { PI_SELECT, CUSTOMER_SELECT } from '../database/query-constants';
 
 @Injectable()
 export class PaymentIntentsService {
@@ -72,6 +70,11 @@ export class PaymentIntentsService {
       customerId: customer.id,
     });
 
+    const clientSecret = stripePI.client_secret;
+    if (!clientSecret) {
+      throw new Error(`PaymentIntent ${stripePI.id} missing client_secret`);
+    }
+
     const id = randomUUID();
     await this.dataSource.query(
       `INSERT INTO STRIPE_PAYMENT_INTENTS (ID, STRIPE_PI_ID, AMOUNT, CURRENCY, STATUS, CLIENT_SECRET, CUSTOMER_ID, STRIPE_PM_ID, IDEMPOTENCY_KEY, METADATA, DESCRIPTION, SETUP_FUTURE_USAGE, PAYMENT_METHOD_TYPES, AMOUNT_RECEIVED, AMOUNT_CAPTURABLE, NEXT_ACTION, LIVEMODE, CREATED_AT, UPDATED_AT)
@@ -82,7 +85,7 @@ export class PaymentIntentsService {
         stripePI.amount,
         stripePI.currency,
         stripePI.status,
-        stripePI.client_secret!,
+        clientSecret,
         customer.id,
         dto.paymentMethodId ?? null,
         idempotencyKey,
@@ -121,11 +124,11 @@ export class PaymentIntentsService {
     );
     if (!pi) throw new NotFoundException(`PaymentIntent ${id} not found`);
 
-    const [customer] = await this.dataSource.query<any[]>(
+    const [customer] = await this.dataSource.query<StripeCustomer[]>(
       `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE ID = :1`,
-      [(pi as any).customerId],
+      [pi.customerId],
     );
-    (pi as any).customer = customer ?? null;
+    if (customer) pi.customer = customer;
 
     return pi;
   }
@@ -147,7 +150,7 @@ export class PaymentIntentsService {
     const { offset, status, dateFrom, dateTo, sortBy, sortOrder } = dto;
 
     const conditions = ['CUSTOMER_ID = :1'];
-    const params: any[] = [customerId];
+    const params: unknown[] = [customerId];
     let idx = 2;
 
     if (status) {
@@ -205,8 +208,8 @@ export class PaymentIntentsService {
     await this.dataSource.query(
       `UPDATE STRIPE_PAYMENT_INTENTS SET METADATA = :1, DESCRIPTION = :2, UPDATED_AT = SYSDATE WHERE ID = :3`,
       [
-        dto.metadata ? JSON.stringify(dto.metadata) : (pi as any).metadata ?? null,
-        dto.description ?? (pi as any).description ?? null,
+        dto.metadata ? JSON.stringify(dto.metadata) : pi.metadata ?? null,
+        dto.description ?? pi.description ?? null,
         id,
       ],
     );
@@ -244,11 +247,11 @@ export class PaymentIntentsService {
       `UPDATE STRIPE_PAYMENT_INTENTS SET STATUS = :1, ERROR_CODE = :2, ERROR_DECLINE_CODE = :3, ERROR_MESSAGE = :4, NEXT_ACTION = :5, AMOUNT_RECEIVED = :6, UPDATED_AT = SYSDATE WHERE ID = :7`,
       [
         status,
-        errorCode ?? (pi as any).errorCode ?? null,
-        errorDeclineCode ?? (pi as any).errorDeclineCode ?? null,
-        errorMessage ?? (pi as any).errorMessage ?? null,
-        nextAction !== undefined ? nextAction : (pi as any).nextAction ?? null,
-        amountReceived !== undefined ? amountReceived : (pi as any).amountReceived ?? null,
+        errorCode ?? pi.errorCode ?? null,
+        errorDeclineCode ?? pi.errorDeclineCode ?? null,
+        errorMessage ?? pi.errorMessage ?? null,
+        nextAction !== undefined ? nextAction : pi.nextAction ?? null,
+        amountReceived !== undefined ? amountReceived : pi.amountReceived ?? null,
         pi.id,
       ],
     );

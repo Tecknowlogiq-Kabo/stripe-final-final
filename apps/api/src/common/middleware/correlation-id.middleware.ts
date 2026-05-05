@@ -10,15 +10,16 @@ import { v4 as uuidv4 } from 'uuid';
  */
 @Injectable()
 export class CorrelationIdMiddleware implements NestMiddleware {
-  use(req: Request & { id?: string }, res: Response, next: NextFunction): void {
+  use(req: Request & { id?: string; correlationId?: string }, res: Response, next: NextFunction): void {
     const correlationId =
       (req.headers['x-correlation-id'] as string) ??
       (req.headers['x-request-id'] as string) ??
       uuidv4();
 
-    // pino-http reads req.id via genReqId — set it here so all log lines
-    // emitted for this request include the correlation ID automatically.
+    // pino-http reads req.id via genReqId — binds correlation ID to all log lines
     req.id = correlationId;
+    // AllExceptionsFilter reads req.correlationId for structured error responses
+    req.correlationId = correlationId;
     res.setHeader('x-correlation-id', correlationId);
     next();
   }

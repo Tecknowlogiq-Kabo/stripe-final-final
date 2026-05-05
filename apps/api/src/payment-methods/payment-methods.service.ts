@@ -10,18 +10,8 @@ import { StripePaymentMethod } from '../entities/stripe-payment-method.entity';
 import { StripeService } from '../stripe/stripe.service';
 import { CustomersService } from '../customers/customers.service';
 import Stripe from 'stripe';
-
-const PM_TYPE_COUNTRY: Record<string, string> = {
-  us_bank_account: 'US',
-  bacs_debit: 'GB',
-  au_becs_debit: 'AU',
-  acss_debit: 'CA',
-  ideal: 'NL',
-  bancontact: 'BE',
-  eps: 'AT',
-};
-
-const PM_SELECT = `ID AS "id", STRIPE_PM_ID AS "stripePaymentMethodId", TYPE AS "type", LAST4 AS "last4", BRAND AS "brand", EXP_MONTH AS "expMonth", EXP_YEAR AS "expYear", FINGERPRINT AS "fingerprint", DETAILS AS "details", BILLING_DETAILS AS "billingDetails", CARD_WALLET_TYPE AS "cardWalletType", COUNTRY AS "country", FUNDING AS "funding", CUSTOMER_ID AS "customerId", IS_DEFAULT AS "isDefault", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
+import { PM_SELECT } from '../database/query-constants';
+import { withTransaction } from '../database/transaction.helper';
 
 @Injectable()
 export class PaymentMethodsService {
@@ -191,10 +181,7 @@ export class PaymentMethodsService {
     }
 
     const fields = this.extractPmFields(stripePM);
-    const runner = this.dataSource.createQueryRunner();
-    await runner.connect();
-    await runner.startTransaction();
-    try {
+    await withTransaction(this.dataSource, async (runner) => {
       const existing: StripePaymentMethod | undefined = (
         await runner.query(
           `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE STRIPE_PM_ID = :1 AND ROWNUM = 1`,
@@ -243,13 +230,7 @@ export class PaymentMethodsService {
           ],
         );
       }
-      await runner.commitTransaction();
-    } catch (err) {
-      await runner.rollbackTransaction();
-      throw err;
-    } finally {
-      await runner.release();
-    }
+    });
   }
 
   async removeByStripeId(stripePaymentMethodId: string): Promise<void> {
@@ -268,6 +249,11 @@ export class PaymentMethodsService {
   private extractPmFields(stripePM: Stripe.PaymentMethod): Partial<StripePaymentMethod> {
     const typeObj = (stripePM as unknown as Record<string, unknown>)[stripePM.type];
 
+    // Inline country resolution: prefer card/sepa country, fall back to type-specific defaults
+    const PM_TYPE_COUNTRY: Record<string, string> = {
+      us_bank_account: 'US', bacs_debit: 'GB', au_becs_debit: 'AU',
+      acss_debit: 'CA', ideal: 'NL', bancontact: 'BE', eps: 'AT',
+    };
     const country: string | undefined =
       stripePM.card?.country ??
       (stripePM.sepa_debit as { country?: string } | undefined)?.country ??

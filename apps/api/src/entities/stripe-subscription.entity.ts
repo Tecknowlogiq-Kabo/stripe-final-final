@@ -43,6 +43,9 @@ export class StripeSubscription {
   @Column({ name: 'DEFAULT_PM_ID', type: 'varchar2', length: 100, nullable: true })
   defaultPaymentMethodId?: string;
 
+  @Column({ name: 'CUSTOMER_ID', type: 'varchar2', length: 36 })
+  customerId: string;
+
   @ManyToOne(() => StripeCustomer, (c) => c.subscriptions)
   @JoinColumn({ name: 'CUSTOMER_ID' })
   customer: StripeCustomer;

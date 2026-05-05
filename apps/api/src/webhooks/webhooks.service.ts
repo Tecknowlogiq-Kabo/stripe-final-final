@@ -5,7 +5,6 @@ import { randomUUID } from 'crypto';
 import Stripe from 'stripe';
 import {
   StripeWebhookEvent,
-  WebhookEventStatus,
 } from '../entities/stripe-webhook-event.entity';
 import { PaymentIntentHandler } from './handlers/payment-intent.handler';
 import { SetupIntentHandler } from './handlers/setup-intent.handler';
@@ -14,12 +13,14 @@ import { InvoiceHandler } from './handlers/invoice.handler';
 import { PaymentMethodHandler } from './handlers/payment-method.handler';
 import { CustomerHandler } from './handlers/customer.handler';
 import { MandateHandler } from './handlers/mandate.handler';
+import { WEBHOOK_SELECT } from '../database/query-constants';
 
-const WEBHOOK_SELECT = `ID AS "id", STRIPE_EVENT_ID AS "stripeEventId", EVENT_TYPE AS "eventType", PAYLOAD AS "payload", STATUS AS "status", ERROR_MESSAGE AS "errorMessage", RETRY_COUNT AS "retryCount", PROCESSED_AT AS "processedAt", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
+type WebhookHandler = { handle: (event: Stripe.Event) => Promise<void> };
 
 @Injectable()
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
+  private readonly handlerRegistry: Map<string, WebhookHandler>;
 
   constructor(
     @InjectDataSource()
@@ -31,7 +32,36 @@ export class WebhooksService {
     private readonly paymentMethodHandler: PaymentMethodHandler,
     private readonly customerHandler: CustomerHandler,
     private readonly mandateHandler: MandateHandler,
-  ) {}
+  ) {
+    this.handlerRegistry = new Map<string, WebhookHandler>([
+      ['payment_intent.succeeded', paymentIntentHandler],
+      ['payment_intent.payment_failed', paymentIntentHandler],
+      ['payment_intent.canceled', paymentIntentHandler],
+      ['payment_intent.processing', paymentIntentHandler],
+      ['payment_intent.requires_action', paymentIntentHandler],
+      ['setup_intent.succeeded', setupIntentHandler],
+      ['setup_intent.setup_failed', setupIntentHandler],
+      ['setup_intent.canceled', setupIntentHandler],
+      ['customer.subscription.created', subscriptionHandler],
+      ['customer.subscription.updated', subscriptionHandler],
+      ['customer.subscription.deleted', subscriptionHandler],
+      ['customer.subscription.trial_will_end', subscriptionHandler],
+      ['customer.subscription.paused', subscriptionHandler],
+      ['customer.subscription.resumed', subscriptionHandler],
+      ['invoice.payment_succeeded', invoiceHandler],
+      ['invoice.payment_failed', invoiceHandler],
+      ['invoice.upcoming', invoiceHandler],
+      ['invoice.created', invoiceHandler],
+      ['invoice.finalized', invoiceHandler],
+      ['payment_method.attached', paymentMethodHandler],
+      ['payment_method.detached', paymentMethodHandler],
+      ['payment_method.updated', paymentMethodHandler],
+      ['customer.created', customerHandler],
+      ['customer.updated', customerHandler],
+      ['customer.deleted', customerHandler],
+      ['mandate.updated', mandateHandler],
+    ]);
+  }
 
   async processEvent(event: Stripe.Event): Promise<void> {
     const [existing] = await this.dataSource.query<StripeWebhookEvent[]>(
@@ -99,53 +129,15 @@ export class WebhooksService {
   }
 
   private async dispatch(event: Stripe.Event): Promise<void> {
-    switch (event.type) {
-      case 'payment_intent.succeeded':
-      case 'payment_intent.payment_failed':
-      case 'payment_intent.canceled':
-      case 'payment_intent.processing':
-      case 'payment_intent.requires_action':
-        return this.paymentIntentHandler.handle(event);
-
-      case 'setup_intent.succeeded':
-      case 'setup_intent.setup_failed':
-      case 'setup_intent.canceled':
-        return this.setupIntentHandler.handle(event);
-
-      case 'customer.subscription.created':
-      case 'customer.subscription.updated':
-      case 'customer.subscription.deleted':
-      case 'customer.subscription.trial_will_end':
-      case 'customer.subscription.paused':
-      case 'customer.subscription.resumed':
-        return this.subscriptionHandler.handle(event);
-
-      case 'invoice.payment_succeeded':
-      case 'invoice.payment_failed':
-      case 'invoice.upcoming':
-      case 'invoice.created':
-      case 'invoice.finalized':
-        return this.invoiceHandler.handle(event);
-
-      case 'payment_method.attached':
-      case 'payment_method.detached':
-      case 'payment_method.updated':
-        return this.paymentMethodHandler.handle(event);
-
-      case 'customer.created':
-      case 'customer.updated':
-      case 'customer.deleted':
-        return this.customerHandler.handle(event);
-
-      case 'mandate.updated':
-        return this.mandateHandler.handle(event);
-
-      default:
-        this.logger.warn({
-          message: 'Unhandled webhook event type',
-          eventType: event.type,
-          eventId: event.id,
-        });
+    const handler = this.handlerRegistry.get(event.type);
+    if (!handler) {
+      this.logger.warn({
+        message: 'Unhandled webhook event type',
+        eventType: event.type,
+        eventId: event.id,
+      });
+      return;
     }
+    await handler.handle(event);
   }
 }

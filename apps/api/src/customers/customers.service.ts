@@ -14,10 +14,8 @@ import { StripeService } from '../stripe/stripe.service';
 import { RedisService, CacheKeys, CacheTtl } from '../redis/redis.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
-
-const CUSTOMER_SELECT = `ID AS "id", STRIPE_CUSTOMER_ID AS "stripeCustomerId", EMAIL AS "email", NAME AS "name", PHONE AS "phone", METADATA AS "metadata", IDEMPOTENCY_KEY AS "idempotencyKey", USER_ID AS "userId", IS_DELETED AS "isDeleted", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
-const PM_SELECT = `ID AS "id", STRIPE_PM_ID AS "stripePaymentMethodId", TYPE AS "type", LAST4 AS "last4", BRAND AS "brand", EXP_MONTH AS "expMonth", EXP_YEAR AS "expYear", FINGERPRINT AS "fingerprint", DETAILS AS "details", BILLING_DETAILS AS "billingDetails", CARD_WALLET_TYPE AS "cardWalletType", COUNTRY AS "country", FUNDING AS "funding", IS_DEFAULT AS "isDefault", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
-const SUB_SELECT = `ID AS "id", STRIPE_SUB_ID AS "stripeSubscriptionId", STATUS AS "status", CURRENT_PERIOD_START AS "currentPeriodStart", CURRENT_PERIOD_END AS "currentPeriodEnd", CANCEL_AT_PERIOD_END AS "cancelAtPeriodEnd", TRIAL_END AS "trialEnd", TRIAL_START AS "trialStart", STRIPE_PRICE_ID AS "stripePriceId", DEFAULT_PM_ID AS "defaultPaymentMethodId", METADATA AS "metadata", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
+import { CUSTOMER_SELECT, PM_SELECT, SUB_SELECT } from '../database/query-constants';
+import { withTransaction } from '../database/transaction.helper';
 
 @Injectable()
 export class CustomersService {
@@ -68,27 +66,24 @@ export class CustomersService {
     });
 
     const id = randomUUID();
-    const runner = this.dataSource.createQueryRunner();
-    await runner.connect();
-    await runner.startTransaction();
     try {
-      await runner.query(
-        `INSERT INTO STRIPE_CUSTOMERS (ID, STRIPE_CUSTOMER_ID, EMAIL, NAME, PHONE, METADATA, IDEMPOTENCY_KEY, USER_ID, IS_DELETED, CREATED_AT, UPDATED_AT)
-         VALUES (:1, :2, :3, :4, :5, :6, :7, :8, 0, SYSDATE, SYSDATE)`,
-        [
-          id,
-          stripeCustomer.id,
-          dto.email,
-          dto.name ?? null,
-          dto.phone ?? null,
-          dto.metadata ? JSON.stringify(dto.metadata) : null,
-          idempotencyKey,
-          userId,
-        ],
-      );
-      await runner.commitTransaction();
+      await withTransaction(this.dataSource, async (runner) => {
+        await runner.query(
+          `INSERT INTO STRIPE_CUSTOMERS (ID, STRIPE_CUSTOMER_ID, EMAIL, NAME, PHONE, METADATA, IDEMPOTENCY_KEY, USER_ID, IS_DELETED, CREATED_AT, UPDATED_AT)
+           VALUES (:1, :2, :3, :4, :5, :6, :7, :8, 0, SYSDATE, SYSDATE)`,
+          [
+            id,
+            stripeCustomer.id,
+            dto.email,
+            dto.name ?? null,
+            dto.phone ?? null,
+            dto.metadata ? JSON.stringify(dto.metadata) : null,
+            idempotencyKey,
+            userId,
+          ],
+        );
+      });
     } catch (err) {
-      await runner.rollbackTransaction();
       // Prevent orphaned Stripe customer when local insert fails
       this.stripeService.customers.del(stripeCustomer.id).catch((cleanupErr: Error) =>
         this.logger.error({
@@ -98,8 +93,6 @@ export class CustomersService {
         }),
       );
       throw err;
-    } finally {
-      await runner.release();
     }
 
     return this.findById(id);

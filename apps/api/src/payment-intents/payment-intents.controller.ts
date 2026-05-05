@@ -48,7 +48,7 @@ export class PaymentIntentsController {
     @CurrentUser() user: JwtUser,
   ) {
     const pi = await this.service.findById(id);
-    await this.assertCustomerOwnership((pi as any).customerId, user.id);
+    await this.assertCustomerOwnership(pi.customerId, user.id);
     return pi;
   }
 
@@ -78,7 +78,7 @@ export class PaymentIntentsController {
     @CurrentUser() user: JwtUser,
   ) {
     const pi = await this.service.findById(id);
-    await this.assertCustomerOwnership((pi as any).customerId, user.id);
+    await this.assertCustomerOwnership(pi.customerId, user.id);
     return this.service.update(id, dto, idempotencyKey);
   }
 
@@ -89,7 +89,7 @@ export class PaymentIntentsController {
     @CurrentUser() user: JwtUser,
   ) {
     const pi = await this.service.findById(id);
-    await this.assertCustomerOwnership((pi as any).customerId, user.id);
+    await this.assertCustomerOwnership(pi.customerId, user.id);
     return this.service.cancel(id);
   }
 

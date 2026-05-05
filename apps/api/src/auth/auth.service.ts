@@ -5,18 +5,14 @@ import {
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { User } from '../entities/user.entity';
-import { RedisService } from '../redis/redis.service';
 import { RegisterDto, LoginDto } from './dto/auth.dto';
+import { TokenService } from './token.service';
+import { USER_SELECT } from '../database/query-constants';
 
 const SALT_ROUNDS = 12;
-
-const USER_SELECT = `ID AS "id", EMAIL AS "email", PASSWORD_HASH AS "passwordHash", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
-
-const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
 export interface AuthResponse {
   accessToken: string;
@@ -29,8 +25,7 @@ export class AuthService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly jwtService: JwtService,
-    private readonly redis: RedisService,
+    private readonly tokenService: TokenService,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResponse> {
@@ -56,7 +51,7 @@ export class AuthService {
       [id],
     );
 
-    return this.issueTokenPair(user);
+    return this.buildAuthResponse(user);
   }
 
   async login(dto: LoginDto): Promise<AuthResponse> {
@@ -73,19 +68,17 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    return this.issueTokenPair(user);
+    return this.buildAuthResponse(user);
   }
 
   async refresh(refreshToken: string): Promise<AuthResponse> {
-    const redisKey = `refresh:${refreshToken}`;
-    const payload = await this.redis.get<{ id: string; email: string }>(redisKey);
-
+    const payload = await this.tokenService.validateRefreshToken(refreshToken);
     if (!payload) {
       throw new UnauthorizedException('Refresh token invalid or expired');
     }
 
-    // Rotate: delete old token before issuing new pair
-    await this.redis.del(redisKey);
+    // Rotate: revoke old token before issuing new pair
+    await this.tokenService.revokeRefreshToken(refreshToken);
 
     const [user] = await this.dataSource.query<User[]>(
       `SELECT ${USER_SELECT} FROM APP_USERS WHERE ID = :1 AND ROWNUM = 1`,
@@ -95,30 +88,17 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    return this.issueTokenPair(user);
+    return this.buildAuthResponse(user);
   }
 
   async logout(refreshToken: string): Promise<void> {
     if (refreshToken) {
-      await this.redis.del(`refresh:${refreshToken}`);
+      await this.tokenService.revokeRefreshToken(refreshToken);
     }
   }
 
-  private async issueTokenPair(user: User): Promise<AuthResponse> {
-    const accessToken = this.jwtService.sign({ sub: user.id, email: user.email });
-
-    const refreshToken = randomUUID();
-    await this.redis.set(
-      `refresh:${refreshToken}`,
-      { id: user.id, email: user.email },
-      REFRESH_TTL_SECONDS,
-    );
-
-    return {
-      accessToken,
-      refreshToken,
-      user: { id: user.id, email: user.email },
-    };
+  private async buildAuthResponse(user: User): Promise<AuthResponse> {
+    const { accessToken, refreshToken } = await this.tokenService.issueTokenPair(user);
+    return { accessToken, refreshToken, user: { id: user.id, email: user.email } };
   }
 }
-

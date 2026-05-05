@@ -11,14 +11,14 @@
     "rules": {
       "recommended": true,
       "correctness": {
-        "noUnusedVariables": "off",
-        "noUnusedImports": "off"
+        "noUnusedVariables": "warn",
+        "noUnusedImports": "warn"
       },
       "suspicious": {
-        "noExplicitAny": "off"
+        "noExplicitAny": "warn"
       },
       "style": {
-        "noNonNullAssertion": "off"
+        "noNonNullAssertion": "warn"
       }
     }
   },

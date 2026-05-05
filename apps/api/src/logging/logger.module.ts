@@ -19,20 +19,35 @@ export const PinoLoggerModule = LoggerModule.forRootAsync({
         const { traceId, spanId } = span.spanContext();
         return { traceId, spanId };
       },
-      // Redact sensitive headers from request/response log lines
+      // Redact sensitive headers and query params from request/response log lines
       redact: {
         paths: [
           'req.headers.authorization',
           'req.headers.cookie',
           'req.headers["stripe-signature"]',
+          'req.query.email',
+          'req.query.token',
         ],
         censor: '[REDACTED]',
       },
-      // Dev: pretty-print; Prod: JSON
+      // Dev: pretty-print; Prod: JSON to stdout + rotating files
       transport:
         process.env.NODE_ENV !== 'production'
           ? { target: 'pino-pretty', options: { colorize: true, singleLine: false } }
-          : undefined,
+          : {
+              targets: [
+                { target: 'pino/file', options: { destination: 1 } },
+                {
+                  target: 'pino-roll',
+                  level: 'error' as const,
+                  options: { file: 'logs/error.log', size: '10m', limit: { count: 5 } },
+                },
+                {
+                  target: 'pino-roll',
+                  options: { file: 'logs/combined.log', size: '50m', limit: { count: 5 } },
+                },
+              ],
+            },
       level: process.env.LOG_LEVEL ?? 'info',
       // Serialize request and response with concise fields
       serializers: {
