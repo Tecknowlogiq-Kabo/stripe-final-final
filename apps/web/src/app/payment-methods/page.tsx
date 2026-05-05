@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { StripeProvider } from '@/components/stripe/StripeProvider';
 import { SetupForm } from '@/components/stripe/SetupForm';
+import type { MappedStripeError } from '@/lib/stripe-errors';
 import {
   useGetCustomerPaymentMethodsQuery,
   useDetachPaymentMethodMutation,
@@ -110,8 +111,9 @@ function getPaymentMethodSubtitle(pm: PaymentMethod): string | null {
 
 export default function PaymentMethodsPage() {
   const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
-  const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupError, setSetupError] = useState<MappedStripeError | null>(null);
   const [addingNew, setAddingNew] = useState(false);
+  const [isRecoverable, setIsRecoverable] = useState(false);
 
   const customerId = DEMO_CUSTOMER_ID;
   const skip = !customerId;
@@ -129,20 +131,43 @@ export default function PaymentMethodsPage() {
   const handleAddNew = async () => {
     if (!customerId) return;
     setSetupError(null);
+    setIsRecoverable(false);
     try {
       const result = await createSetupIntent({ customerId });
       setSetupClientSecret(result.clientSecret);
       setAddingNew(true);
     } catch (err) {
-      setSetupError(err instanceof Error ? err.message : 'Failed to initialize setup');
+      const msg = err instanceof Error ? err.message : 'Failed to initialize setup';
+      setSetupError({
+        title: 'Setup failed',
+        message: msg,
+        recoverability: 'retry',
+        action: 'Please try again.',
+      });
     }
   };
 
   const handleSetupSuccess = () => {
     setAddingNew(false);
     setSetupClientSecret(null);
+    setSetupError(null);
+    setIsRecoverable(false);
     refetch();
   };
+
+  const handleSetupError = useCallback((mapped: MappedStripeError) => {
+    setSetupError(mapped);
+    setIsRecoverable(mapped.recoverability !== 'non-recoverable');
+  }, []);
+
+  const handleSetupRecoverableError = useCallback(() => {
+    setIsRecoverable(true);
+  }, []);
+
+  const handleRetrySetup = useCallback(() => {
+    setSetupError(null);
+    setIsRecoverable(false);
+  }, []);
 
   if (!customerId) {
     return (
@@ -179,8 +204,27 @@ export default function PaymentMethodsPage() {
       </div>
 
       {setupError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
-          {setupError}
+        <div
+          role="alert"
+          className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-semibold text-sm">{setupError.title}</p>
+              <p className="text-sm mt-1">{setupError.message}</p>
+              {setupError.action && (
+                <p className="text-xs mt-1 text-red-600">{setupError.action}</p>
+              )}
+            </div>
+            {isRecoverable && (
+              <button
+                onClick={handleRetrySetup}
+                className="shrink-0 text-sm font-semibold text-red-700 hover:text-red-900 underline underline-offset-2"
+              >
+                Try again
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -190,11 +234,17 @@ export default function PaymentMethodsPage() {
           <StripeProvider clientSecret={setupClientSecret} mode="setup">
             <SetupForm
               onSuccess={handleSetupSuccess}
-              onError={setSetupError}
+              onError={handleSetupError}
+              onRecoverableError={handleSetupRecoverableError}
             />
           </StripeProvider>
           <button
-            onClick={() => { setAddingNew(false); setSetupClientSecret(null); }}
+            onClick={() => {
+              setAddingNew(false);
+              setSetupClientSecret(null);
+              setSetupError(null);
+              setIsRecoverable(false);
+            }}
             className="mt-3 text-sm text-gray-500 hover:text-gray-700"
           >
             Cancel

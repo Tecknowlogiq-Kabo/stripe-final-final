@@ -1,20 +1,10 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Delete,
-  Param,
-  Body,
-  HttpCode,
-  HttpStatus,
-  ParseUUIDPipe,
-} from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, HttpCode, HttpStatus, ParseUUIDPipe, NotFoundException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { PaymentIntentsService } from './payment-intents.service';
 import { CreatePaymentIntentDto } from './dto/create-payment-intent.dto';
 import { UpdatePaymentIntentDto } from './dto/update-payment-intent.dto';
 import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 
 @Controller('payment-intents')
 export class PaymentIntentsController {
@@ -33,6 +23,14 @@ export class PaymentIntentsController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.service.findById(id);
+  }
+
+  @Get('stripe/:stripeId')
+  @Public()
+  async findByStripeId(@Param('stripeId') stripeId: string) {
+    const pi = await this.service.findByStripeId(stripeId);
+    if (!pi) throw new NotFoundException(`PaymentIntent ${stripeId} not found`);
+    return pi;
   }
 
   @Patch(':id')

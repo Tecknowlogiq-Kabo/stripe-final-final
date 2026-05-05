@@ -1,62 +1,118 @@
 'use client';
 
 import { PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { mapStripeError, mapPaymentIntentStatus, type MappedStripeError } from '@/lib/stripe-errors';
+
+export interface PaymentFormResult {
+  paymentIntentId: string;
+  status: string;
+}
 
 interface PaymentFormProps {
-  onSuccess: (paymentIntentId: string) => void;
-  onError: (message: string) => void;
+  onSuccess: (result: PaymentFormResult) => void;
+  onError: (mapped: MappedStripeError) => void;
   submitLabel?: string;
+  onRecoverableError?: () => void;
 }
 
 /**
  * Embedded Payment Element form — users never leave the app.
  *
- * Key: `redirect: 'if_required'` prevents external redirects for standard
- * card payments. Only redirects when the payment method genuinely requires
- * bank auth (e.g. iDEAL, Bancontact). The return_url handles that case
- * within our own domain.
+ * Comprehensive error handling covers:
+ *   - All Stripe error types (card_error, validation_error, api_error, etc.)
+ *   - All PaymentIntent statuses (succeeded, processing, requires_action, etc.)
+ *   - Network failures and unexpected JS exceptions
+ *   - Distinguishes recoverable vs non-recoverable failures
+ *
+ * `redirect: 'if_required'` prevents external redirects for standard card
+ * payments; only redirects for bank-auth methods (e.g. iDEAL, 3DS).
  */
 export function PaymentForm({
   onSuccess,
   onError,
   submitLabel = 'Pay Now',
+  onRecoverableError,
 }: PaymentFormProps) {
   const stripe = useStripe();
   const elements = useElements();
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<MappedStripeError | null>(null);
+
+  const clearError = useCallback(() => {
+    setErrorState(null);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!stripe || !elements) return;
 
     setIsLoading(true);
-    setErrorMessage(null);
+    setErrorState(null);
 
-    const { error, paymentIntent } = await stripe.confirmPayment({
-      elements,
-      confirmParams: {
-        // return_url handles redirect-based payment methods (3DS, bank redirects)
-        // User returns to our success page — stays within the app domain
-        return_url: `${window.location.origin}/checkout/success`,
-      },
-      // CRITICAL: prevents redirect for card payments that don't require 3DS
-      redirect: 'if_required',
-    });
+    try {
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/checkout/success`,
+        },
+        redirect: 'if_required',
+      });
 
-    setIsLoading(false);
+      if (error) {
+        const mapped = mapStripeError(error);
+        setErrorState(mapped);
+        onError(mapped);
+        if (mapped.recoverability !== 'non-recoverable' && onRecoverableError) {
+          onRecoverableError();
+        }
+        setIsLoading(false);
+        return;
+      }
 
-    if (error) {
-      // error.message is safe to show (Stripe formats decline messages)
-      const msg = error.message ?? 'Payment failed. Please try again.';
-      setErrorMessage(msg);
-      onError(msg);
-    } else if (paymentIntent?.status === 'succeeded') {
-      onSuccess(paymentIntent.id);
-    } else if (paymentIntent?.status === 'processing') {
-      // Bank transfers / delayed notifications
-      onSuccess(paymentIntent.id);
+      if (!paymentIntent) {
+        const mapped: MappedStripeError = {
+          title: 'Unexpected result',
+          message: 'No payment result was returned. Your card was not charged.',
+          recoverability: 'retry',
+          action: 'Please try again.',
+        };
+        setErrorState(mapped);
+        onError(mapped);
+        setIsLoading(false);
+        return;
+      }
+
+      const statusError = mapPaymentIntentStatus(paymentIntent.status);
+      if (statusError) {
+        setErrorState(statusError);
+        onError(statusError);
+        if (statusError.recoverability !== 'non-recoverable' && onRecoverableError) {
+          onRecoverableError();
+        }
+        setIsLoading(false);
+        return;
+      }
+
+      // Success cases: succeeded | processing
+      onSuccess({
+        paymentIntentId: paymentIntent.id,
+        status: paymentIntent.status,
+      });
+    } catch (unexpected) {
+      const mapped: MappedStripeError = {
+        title: 'Unexpected error',
+        message:
+          unexpected instanceof Error
+            ? unexpected.message
+            : 'An unexpected error occurred. Your card was not charged.',
+        recoverability: 'retry',
+        action: 'Please try again or contact support if the problem persists.',
+      };
+      setErrorState(mapped);
+      onError(mapped);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -70,18 +126,26 @@ export function PaymentForm({
             googlePay: 'auto',
           },
         }}
+        onChange={clearError}
       />
 
-      {errorMessage && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-          {errorMessage}
+      {errorState && (
+        <div
+          role="alert"
+          className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm"
+        >
+          <p className="font-semibold">{errorState.title}</p>
+          <p className="mt-1">{errorState.message}</p>
+          {errorState.action && (
+            <p className="mt-1 text-red-600 text-xs">{errorState.action}</p>
+          )}
         </div>
       )}
 
       <button
         type="submit"
         disabled={isLoading || !stripe || !elements}
-        className="btn-primary"
+        className="btn-primary w-full"
       >
         {isLoading ? (
           <span className="flex items-center justify-center gap-2">
