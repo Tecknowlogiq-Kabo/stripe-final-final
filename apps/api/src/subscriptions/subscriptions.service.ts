@@ -10,6 +10,7 @@ import { StripeSubscription } from '../entities/stripe-subscription.entity';
 import { SubscriptionPlan } from '../entities/subscription-plan.entity';
 import { StripeService } from '../stripe/stripe.service';
 import { CustomersService } from '../customers/customers.service';
+import { RedisService, CacheKeys, CacheTtl } from '../redis/redis.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import Stripe from 'stripe';
@@ -29,6 +30,7 @@ export class SubscriptionsService {
     private readonly dataSource: DataSource,
     private readonly stripeService: StripeService,
     private readonly customersService: CustomersService,
+    private readonly redis: RedisService,
   ) {}
 
   async create(
@@ -261,13 +263,19 @@ export class SubscriptionsService {
   }
 
   async listPlans(activeOnly = true): Promise<SubscriptionPlan[]> {
-    if (activeOnly) {
-      return this.dataSource.query<SubscriptionPlan[]>(
-        `SELECT ${PLAN_SELECT} FROM SUBSCRIPTION_PLANS WHERE IS_ACTIVE = 1 ORDER BY AMOUNT ASC`,
-      );
-    }
-    return this.dataSource.query<SubscriptionPlan[]>(
-      `SELECT ${PLAN_SELECT} FROM SUBSCRIPTION_PLANS ORDER BY AMOUNT ASC`,
-    );
+    const cacheKey = CacheKeys.plans(activeOnly);
+    const cached = await this.redis.get<SubscriptionPlan[]>(cacheKey);
+    if (cached) return cached;
+
+    const plans = activeOnly
+      ? await this.dataSource.query<SubscriptionPlan[]>(
+          `SELECT ${PLAN_SELECT} FROM SUBSCRIPTION_PLANS WHERE IS_ACTIVE = 1 ORDER BY AMOUNT ASC`,
+        )
+      : await this.dataSource.query<SubscriptionPlan[]>(
+          `SELECT ${PLAN_SELECT} FROM SUBSCRIPTION_PLANS ORDER BY AMOUNT ASC`,
+        );
+
+    await this.redis.set(cacheKey, plans, CacheTtl.PLANS);
+    return plans;
   }
 }

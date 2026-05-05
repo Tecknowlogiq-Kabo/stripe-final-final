@@ -1,4 +1,18 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query, HttpCode, HttpStatus, ParseUUIDPipe, NotFoundException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  Query,
+  HttpCode,
+  HttpStatus,
+  ParseUUIDPipe,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { PaymentIntentsService } from './payment-intents.service';
 import { CustomersService } from '../customers/customers.service';
@@ -7,6 +21,7 @@ import { UpdatePaymentIntentDto } from './dto/update-payment-intent.dto';
 import { ListPaymentIntentsDto } from './dto/list-payment-intents.dto';
 import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator';
 import { Public } from '../auth/decorators/public.decorator';
+import { CurrentUser, JwtUser } from '../auth/decorators/current-user.decorator';
 
 @Controller('payment-intents')
 export class PaymentIntentsController {
@@ -18,16 +33,23 @@ export class PaymentIntentsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @Throttle({ payment: { limit: 20, ttl: 60_000 } })
-  create(
+  async create(
     @Body() dto: CreatePaymentIntentDto,
     @IdempotencyKey() idempotencyKey: string,
+    @CurrentUser() user: JwtUser,
   ) {
+    await this.assertCustomerOwnership(dto.customerId, user.id);
     return this.service.create(dto, idempotencyKey);
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.service.findById(id);
+  async findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const pi = await this.service.findById(id);
+    await this.assertCustomerOwnership((pi as any).customerId, user.id);
+    return pi;
   }
 
   @Get('stripe/:stripeId')
@@ -42,24 +64,38 @@ export class PaymentIntentsController {
   async findByCustomer(
     @Param('customerId', ParseUUIDPipe) customerId: string,
     @Query() dto: ListPaymentIntentsDto,
+    @CurrentUser() user: JwtUser,
   ) {
-    const customer = await this.customersService.findById(customerId);
-    if (!customer) throw new NotFoundException(`Customer ${customerId} not found`);
+    await this.assertCustomerOwnership(customerId, user.id);
     return this.service.findByCustomer(customerId, dto);
   }
 
   @Patch(':id')
-  update(
+  async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdatePaymentIntentDto,
     @IdempotencyKey() idempotencyKey: string,
+    @CurrentUser() user: JwtUser,
   ) {
+    const pi = await this.service.findById(id);
+    await this.assertCustomerOwnership((pi as any).customerId, user.id);
     return this.service.update(id, dto, idempotencyKey);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  cancel(@Param('id', ParseUUIDPipe) id: string) {
+  async cancel(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    const pi = await this.service.findById(id);
+    await this.assertCustomerOwnership((pi as any).customerId, user.id);
     return this.service.cancel(id);
+  }
+
+  private async assertCustomerOwnership(customerId: string, userId: string): Promise<void> {
+    const customer = await this.customersService.findById(customerId);
+    if (!customer) throw new NotFoundException(`Customer ${customerId} not found`);
+    if (customer.userId !== userId) throw new ForbiddenException('Access denied');
   }
 }

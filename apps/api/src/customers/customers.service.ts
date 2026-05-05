@@ -11,10 +11,11 @@ import { StripeCustomer } from '../entities/stripe-customer.entity';
 import { StripePaymentMethod } from '../entities/stripe-payment-method.entity';
 import { StripeSubscription } from '../entities/stripe-subscription.entity';
 import { StripeService } from '../stripe/stripe.service';
+import { RedisService, CacheKeys, CacheTtl } from '../redis/redis.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 
-const CUSTOMER_SELECT = `ID AS "id", STRIPE_CUSTOMER_ID AS "stripeCustomerId", EMAIL AS "email", NAME AS "name", PHONE AS "phone", METADATA AS "metadata", IDEMPOTENCY_KEY AS "idempotencyKey", IS_DELETED AS "isDeleted", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
+const CUSTOMER_SELECT = `ID AS "id", STRIPE_CUSTOMER_ID AS "stripeCustomerId", EMAIL AS "email", NAME AS "name", PHONE AS "phone", METADATA AS "metadata", IDEMPOTENCY_KEY AS "idempotencyKey", USER_ID AS "userId", IS_DELETED AS "isDeleted", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
 const PM_SELECT = `ID AS "id", STRIPE_PM_ID AS "stripePaymentMethodId", TYPE AS "type", LAST4 AS "last4", BRAND AS "brand", EXP_MONTH AS "expMonth", EXP_YEAR AS "expYear", FINGERPRINT AS "fingerprint", DETAILS AS "details", BILLING_DETAILS AS "billingDetails", CARD_WALLET_TYPE AS "cardWalletType", COUNTRY AS "country", FUNDING AS "funding", IS_DEFAULT AS "isDefault", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
 const SUB_SELECT = `ID AS "id", STRIPE_SUB_ID AS "stripeSubscriptionId", STATUS AS "status", CURRENT_PERIOD_START AS "currentPeriodStart", CURRENT_PERIOD_END AS "currentPeriodEnd", CANCEL_AT_PERIOD_END AS "cancelAtPeriodEnd", TRIAL_END AS "trialEnd", TRIAL_START AS "trialStart", STRIPE_PRICE_ID AS "stripePriceId", DEFAULT_PM_ID AS "defaultPaymentMethodId", METADATA AS "metadata", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
 
@@ -26,11 +27,13 @@ export class CustomersService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly stripeService: StripeService,
+    private readonly redis: RedisService,
   ) {}
 
   async create(
     dto: CreateCustomerDto,
     idempotencyKey: string,
+    userId: string,
   ): Promise<StripeCustomer> {
     const [existing] = await this.dataSource.query<StripeCustomer[]>(
       `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE IDEMPOTENCY_KEY = :1 AND ROWNUM = 1`,
@@ -66,8 +69,8 @@ export class CustomersService {
 
     const id = randomUUID();
     await this.dataSource.query(
-      `INSERT INTO STRIPE_CUSTOMERS (ID, STRIPE_CUSTOMER_ID, EMAIL, NAME, PHONE, METADATA, IDEMPOTENCY_KEY, IS_DELETED, CREATED_AT, UPDATED_AT)
-       VALUES (:1, :2, :3, :4, :5, :6, :7, 0, SYSDATE, SYSDATE)`,
+      `INSERT INTO STRIPE_CUSTOMERS (ID, STRIPE_CUSTOMER_ID, EMAIL, NAME, PHONE, METADATA, IDEMPOTENCY_KEY, USER_ID, IS_DELETED, CREATED_AT, UPDATED_AT)
+       VALUES (:1, :2, :3, :4, :5, :6, :7, :8, 0, SYSDATE, SYSDATE)`,
       [
         id,
         stripeCustomer.id,
@@ -76,17 +79,26 @@ export class CustomersService {
         dto.phone ?? null,
         dto.metadata ? JSON.stringify(dto.metadata) : null,
         idempotencyKey,
+        userId,
       ],
     );
 
+    return this.findById(id);
+  }
+
+  async findByUserId(userId: string): Promise<StripeCustomer | null> {
     const [customer] = await this.dataSource.query<StripeCustomer[]>(
-      `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE ID = :1`,
-      [id],
+      `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE USER_ID = :1 AND IS_DELETED = 0 AND ROWNUM = 1`,
+      [userId],
     );
-    return customer;
+    if (!customer) return null;
+    return this.findById(customer.id);
   }
 
   async findById(id: string): Promise<StripeCustomer> {
+    const cached = await this.redis.get<StripeCustomer>(CacheKeys.customer(id));
+    if (cached) return cached;
+
     const [customer] = await this.dataSource.query<StripeCustomer[]>(
       `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE ID = :1 AND IS_DELETED = 0`,
       [id],
@@ -106,20 +118,30 @@ export class CustomersService {
 
     customer.paymentMethods = paymentMethods;
     customer.subscriptions = subscriptions;
+
+    await this.redis.set(CacheKeys.customer(id), customer, CacheTtl.CUSTOMER);
     return customer;
   }
 
   async findByStripeId(stripeCustomerId: string): Promise<StripeCustomer> {
-    const [customer] = await this.dataSource.query<StripeCustomer[]>(
+    const cached = await this.redis.get<StripeCustomer>(CacheKeys.customerByStripe(stripeCustomerId));
+    if (cached) return cached;
+
+    const [row] = await this.dataSource.query<StripeCustomer[]>(
       `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE STRIPE_CUSTOMER_ID = :1 AND IS_DELETED = 0`,
       [stripeCustomerId],
     );
-    if (!customer) {
+    if (!row) {
       throw new NotFoundException(
         `Customer with Stripe ID ${stripeCustomerId} not found`,
       );
     }
-    return customer;
+
+    // Fetch full object (with payment methods + subscriptions) so cached shape
+    // matches findById — important for webhook handlers that use this result
+    const full = await this.findById(row.id);
+    await this.redis.set(CacheKeys.customerByStripe(stripeCustomerId), full, CacheTtl.CUSTOMER);
+    return full;
   }
 
   async findByEmail(email: string): Promise<StripeCustomer | null> {
@@ -163,6 +185,10 @@ export class CustomersService {
       ],
     );
 
+    await this.redis.del(
+      CacheKeys.customer(id),
+      CacheKeys.customerByStripe(customer.stripeCustomerId),
+    );
     return this.findById(id);
   }
 
@@ -172,6 +198,10 @@ export class CustomersService {
     await this.dataSource.query(
       `UPDATE STRIPE_CUSTOMERS SET IS_DELETED = 1, UPDATED_AT = SYSDATE WHERE ID = :1`,
       [id],
+    );
+    await this.redis.del(
+      CacheKeys.customer(id),
+      CacheKeys.customerByStripe(customer.stripeCustomerId),
     );
     this.logger.log({ message: 'Customer soft deleted', customerId: id });
   }
@@ -215,6 +245,10 @@ export class CustomersService {
       ],
     );
 
+    await this.redis.del(
+      CacheKeys.customer(customer.id),
+      CacheKeys.customerByStripe(stripeCustomerId),
+    );
     return this.findById(customer.id);
   }
 }

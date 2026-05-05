@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { RedisService } from '../redis/redis.service';
+
+// Reports are analytics — 5-minute cache is fine
+const REPORT_TTL = 300;
 
 export interface RevenueByMonthResult {
   month: string;
@@ -39,14 +43,21 @@ export interface WebhookHealthResult {
 
 @Injectable()
 export class ReportingService {
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly redis: RedisService,
+  ) {}
 
   /**
    * Revenue breakdown by month and currency for a given year.
    * Uses Oracle-specific: TO_CHAR for date grouping, EXTRACT for year.
    */
   async getRevenueByMonth(year: number): Promise<RevenueByMonthResult[]> {
-    return this.dataSource.query<RevenueByMonthResult[]>(
+    const cacheKey = `report:revenue:${year}`;
+    const cached = await this.redis.get<RevenueByMonthResult[]>(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.dataSource.query<RevenueByMonthResult[]>(
       `SELECT
         TO_CHAR(spi.CREATED_AT, 'YYYY-MM')   AS "month",
         spi.CURRENCY                          AS "currency",
@@ -60,6 +71,8 @@ export class ReportingService {
       ORDER BY "month" ASC, spi.CURRENCY`,
       [year],
     );
+    await this.redis.set(cacheKey, result, REPORT_TTL);
+    return result;
   }
 
   /**
@@ -67,7 +80,11 @@ export class ReportingService {
    * Uses Oracle JOIN, GROUP BY, CASE for interval normalization.
    */
   async getActiveSubscribersByPlan(): Promise<SubscribersByPlanResult[]> {
-    return this.dataSource.query<SubscribersByPlanResult[]>(
+    const cacheKey = 'report:subscribers-by-plan';
+    const cached = await this.redis.get<SubscribersByPlanResult[]>(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.dataSource.query<SubscribersByPlanResult[]>(
       `SELECT
         sp.NAME                                     AS "planName",
         sp.STRIPE_PRICE_ID                          AS "stripePriceId",
@@ -85,6 +102,8 @@ export class ReportingService {
       GROUP BY sp.NAME, sp.STRIPE_PRICE_ID, sp.AMOUNT, sp.INTERVAL_TYPE
       ORDER BY "mrrDollars" DESC`,
     );
+    await this.redis.set(cacheKey, result, REPORT_TTL);
+    return result;
   }
 
   /**
@@ -92,7 +111,11 @@ export class ReportingService {
    * Uses Oracle: ADD_MONTHS, TO_CHAR for month grouping.
    */
   async getChurnByMonth(months = 6): Promise<ChurnResult[]> {
-    return this.dataSource.query<ChurnResult[]>(
+    const cacheKey = `report:churn:${months}`;
+    const cached = await this.redis.get<ChurnResult[]>(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.dataSource.query<ChurnResult[]>(
       `SELECT
         TO_CHAR(ss.UPDATED_AT, 'YYYY-MM')     AS "month",
         COUNT(*)                              AS "canceledCount"
@@ -103,6 +126,8 @@ export class ReportingService {
       ORDER BY "month" ASC`,
       [-Math.abs(months)],
     );
+    await this.redis.set(cacheKey, result, REPORT_TTL);
+    return result;
   }
 
   /**
@@ -110,7 +135,11 @@ export class ReportingService {
    * Uses Oracle: NVL for null safety, LEFT JOIN for customers with no payments.
    */
   async getCustomerLtv(customerId: string): Promise<LtvResult[]> {
-    return this.dataSource.query<LtvResult[]>(
+    const cacheKey = `report:ltv:${customerId}`;
+    const cached = await this.redis.get<LtvResult[]>(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.dataSource.query<LtvResult[]>(
       `SELECT
         sc.EMAIL                                    AS "email",
         NVL(SUM(spi.AMOUNT), 0)                    AS "ltvCents",
@@ -126,6 +155,8 @@ export class ReportingService {
       GROUP BY sc.EMAIL`,
       [customerId],
     );
+    await this.redis.set(cacheKey, result, REPORT_TTL);
+    return result;
   }
 
   /**
@@ -135,7 +166,13 @@ export class ReportingService {
   async getFailedPaymentsByDeclineCode(): Promise<
     Array<{ declineCode: string; failureCount: string; failurePct: string }>
   > {
-    return this.dataSource.query(
+    const cacheKey = 'report:failed-payments-decline';
+    const cached = await this.redis.get<
+      Array<{ declineCode: string; failureCount: string; failurePct: string }>
+    >(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.dataSource.query(
       `SELECT
         NVL(spi.ERROR_DECLINE_CODE, 'unknown')     AS "declineCode",
         COUNT(*)                                   AS "failureCount",
@@ -150,6 +187,8 @@ export class ReportingService {
       ORDER BY "failureCount" DESC
       FETCH FIRST 10 ROWS ONLY`,
     );
+    await this.redis.set(cacheKey, result, REPORT_TTL);
+    return result;
   }
 
   /**
@@ -157,7 +196,11 @@ export class ReportingService {
    * Uses Oracle: SYSDATE arithmetic, interval math for timing.
    */
   async getWebhookHealth(): Promise<WebhookHealthResult[]> {
-    return this.dataSource.query<WebhookHealthResult[]>(
+    const cacheKey = 'report:webhook-health';
+    const cached = await this.redis.get<WebhookHealthResult[]>(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.dataSource.query<WebhookHealthResult[]>(
       `SELECT
         we.EVENT_TYPE                              AS "eventType",
         we.STATUS                                 AS "status",
@@ -176,6 +219,8 @@ export class ReportingService {
       GROUP BY we.EVENT_TYPE, we.STATUS
       ORDER BY we.EVENT_TYPE, we.STATUS`,
     );
+    await this.redis.set(cacheKey, result, REPORT_TTL);
+    return result;
   }
 
   /**
@@ -190,7 +235,18 @@ export class ReportingService {
       avgLtvDollars: string;
     }>
   > {
-    return this.dataSource.query(
+    const cacheKey = 'report:cohort-ltv';
+    const cached = await this.redis.get<
+      Array<{
+        cohortMonth: string;
+        customers: string;
+        totalRevenueDollars: string;
+        avgLtvDollars: string;
+      }>
+    >(cacheKey);
+    if (cached) return cached;
+
+    const result = await this.dataSource.query(
       `SELECT
         TO_CHAR(sc.CREATED_AT, 'YYYY-MM')          AS "cohortMonth",
         COUNT(DISTINCT sc.ID)                      AS "customers",
@@ -205,5 +261,7 @@ export class ReportingService {
       GROUP BY TO_CHAR(sc.CREATED_AT, 'YYYY-MM')
       ORDER BY "cohortMonth" ASC`,
     );
+    await this.redis.set(cacheKey, result, REPORT_TTL);
+    return result;
   }
 }

@@ -22,6 +22,8 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { ReportingModule } from './reporting/reporting.module';
 import { HealthModule } from './health/health.module';
+import { RedisModule } from './redis/redis.module';
+import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
 import { StripeExceptionFilter } from './common/filters/stripe-exception.filter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
@@ -37,22 +39,26 @@ import { RequestTimeoutMiddleware } from './common/middleware/request-timeout.mi
     }),
     PinoLoggerModule,
     ThrottlerModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => [
-        {
-          name: 'default',
-          ttl: (configService.get<number>('throttle.ttl') ?? 60) * 1000,
-          limit: configService.get<number>('throttle.limit') ?? 100,
-        },
-        {
-          // Tighter limit for financial write endpoints
-          name: 'payment',
-          ttl: 60_000,
-          limit: 20,
-        },
-      ],
-      inject: [ConfigService],
+      imports: [ConfigModule, RedisModule],
+      useFactory: (configService: ConfigService, storage: RedisThrottlerStorage) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: (configService.get<number>('throttle.ttl') ?? 60) * 1000,
+            limit: configService.get<number>('throttle.limit') ?? 100,
+          },
+          {
+            // Tighter limit for financial write endpoints
+            name: 'payment',
+            ttl: 60_000,
+            limit: 20,
+          },
+        ],
+        storage,
+      }),
+      inject: [ConfigService, RedisThrottlerStorage],
     }),
+    RedisModule,
     DatabaseModule,
     AuthModule,
     StripeModule,

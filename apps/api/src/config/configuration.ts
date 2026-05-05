@@ -28,4 +28,7 @@ export default () => ({
     secret: process.env.JWT_SECRET,
     expiresIn: '15m',
   },
+  redis: {
+    url: process.env.REDIS_URL ?? 'redis://localhost:6379',
+  },
 });

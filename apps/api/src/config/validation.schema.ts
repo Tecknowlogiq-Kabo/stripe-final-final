@@ -25,4 +25,6 @@ export const validationSchema = Joi.object({
   THROTTLE_TTL: Joi.number().default(60),
   THROTTLE_LIMIT: Joi.number().default(100),
   JWT_SECRET: Joi.string().min(32).required(),
+  REDIS_URL: Joi.string().uri({ scheme: ['redis', 'rediss'] }).default('redis://localhost:6379'),
+  LOG_FORMAT: Joi.string().valid('json', 'pretty').default('json'),
 });

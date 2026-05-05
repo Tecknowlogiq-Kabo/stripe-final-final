@@ -11,9 +11,8 @@ import {
   useSetDefaultPaymentMethodMutation,
   type PaymentMethod,
 } from '@/store/apis/paymentMethodsApi';
+import { useGetMyCustomerQuery } from '@/store/apis/customersApi';
 import { createSetupIntent } from '@/actions/setup-intents';
-
-const DEMO_CUSTOMER_ID = process.env.NEXT_PUBLIC_DEMO_CUSTOMER_ID ?? '';
 
 // ── Display helpers ──────────────────────────────────────────────────────────
 
@@ -115,7 +114,8 @@ export default function PaymentMethodsPage() {
   const [addingNew, setAddingNew] = useState(false);
   const [isRecoverable, setIsRecoverable] = useState(false);
 
-  const customerId = DEMO_CUSTOMER_ID;
+  const { data: myCustomer } = useGetMyCustomerQuery();
+  const customerId = myCustomer?.id ?? '';
   const skip = !customerId;
 
   const {

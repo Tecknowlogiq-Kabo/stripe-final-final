@@ -1,88 +1,147 @@
 # Deployment Readiness
 
+**Assessed:** 2026-05-05  
+**Verdict: NOT READY FOR PRODUCTION** — 3 P0 blockers must be resolved first.
+
+---
+
+## Blockers
+
+| # | Blocker | File | Impact |
+|---|---------|------|--------|
+| B1 | Redis failures crash cached endpoints (no circuit breaker) | `redis/redis.service.ts` | HTTP 500 on every customer/plans lookup if Redis restarts |
+| B2 | NEXT_PUBLIC_DEMO_CUSTOMER_ID hardcoded for all users | `web/src/app/payment-methods/page.tsx` | All users see/manage the same customer's payment data |
+| B3 | No refresh tokens — users silently lose session after 15 min | `auth/auth.service.ts` | Unusable in production without token refresh |
+
+These three must be fixed before any real traffic. Everything else below is how to proceed once they're resolved.
+
+---
+
 ## Pre-Deployment Checklist
 
-### Database
-- [ ] Oracle XE 21c accessible from API container
-- [ ] Service name is `XEPDB1` (pluggable DB, NOT `XE`)
-- [ ] Run migration 001: `npm run migration:run` in `apps/api`
-- [ ] Run migration 002: `npm run migration:run` in `apps/api` (missing indexes + webhook `UPDATED_AT`)
-- [ ] Run migration 003: `npm run migration:run` in `apps/api` (APP_USERS table for JWT auth)
-- [ ] Verify all indexes: `SELECT INDEX_NAME FROM USER_INDEXES ORDER BY TABLE_NAME, INDEX_NAME`
+### Infrastructure
+
+- [ ] Redis container running and healthy (`redis-cli ping` → `PONG`)
+- [ ] Oracle XE 21c accessible from API container on port 1521
+- [ ] Oracle service name is `XEPDB1` (pluggable DB, **not** `XE`)
+- [ ] Jaeger or equivalent APM running for traces
+
+### Migrations
+
+Run in order — all four must succeed before starting the API:
+
+```bash
+cd apps/api
+
+# 001: Initial schema (all tables + FKs)
+npm run migration:run
+
+# 002: Missing indexes + webhook UPDATED_AT column
+npm run migration:run
+
+# 003: APP_USERS table for authentication
+npm run migration:run
+
+# 004: Expand payment methods + payment intents + setup intents
+npm run migration:run
+
+# Verify
+# Connect to Oracle and run:
+# SELECT TABLE_NAME, NUM_ROWS FROM USER_TABLES ORDER BY TABLE_NAME;
+# SELECT INDEX_NAME, TABLE_NAME FROM USER_INDEXES ORDER BY TABLE_NAME;
+```
 
 ### Environment Variables (API)
 
-| Variable | Example | Notes |
-|---|---|---|
-| `NODE_ENV` | `production` | Controls logging format, Swagger visibility |
-| `PORT` | `3001` | |
-| `ORACLE_USER` | `stripe_app` | Least-privilege DB user |
-| `ORACLE_PASSWORD` | *(secret)* | Rotate regularly |
-| `ORACLE_HOST` | `oracle` | Docker service name |
-| `ORACLE_PORT` | `1521` | |
-| `ORACLE_SERVICE_NAME` | `XEPDB1` | Must be pluggable DB, not SID |
-| `STRIPE_SECRET_KEY` | `sk_live_...` | Live key for production |
-| `STRIPE_WEBHOOK_SECRET` | `whsec_...` | From Stripe Dashboard → Webhooks |
-| `CORS_ORIGIN` | `https://app.example.com` | Exact frontend origin |
-| `JWT_SECRET` | *(min 32 chars)* | Use `openssl rand -base64 48` to generate |
-| `LOG_LEVEL` | `info` | |
-| `THROTTLE_TTL` | `60` | Seconds |
-| `THROTTLE_LIMIT` | `100` | Requests per TTL (default throttler) |
+| Variable | Example | Required | Notes |
+|----------|---------|----------|-------|
+| `NODE_ENV` | `production` | No | Controls Swagger (dev-only), log format |
+| `PORT` | `3001` | No | Default: 3001 |
+| `ORACLE_USER` | `stripe_app` | **Yes** | Use least-privilege account |
+| `ORACLE_PASSWORD` | *(secret)* | **Yes** | Store in secrets manager |
+| `ORACLE_HOST` | `oracle` | **Yes** | Docker service name or RDS host |
+| `ORACLE_PORT` | `1521` | No | Default: 1521 |
+| `ORACLE_SERVICE_NAME` | `XEPDB1` | No | Must be pluggable DB, not SID |
+| `STRIPE_SECRET_KEY` | `sk_live_...` | **Yes** | Pattern validated: `sk_(test\|live)_*` |
+| `STRIPE_WEBHOOK_SECRET` | `whsec_...` | **Yes** | From Stripe Dashboard → Webhooks |
+| `CORS_ORIGIN` | `https://app.example.com` | **Yes** | Exact match, no trailing slash |
+| `JWT_SECRET` | *(min 32 chars)* | **Yes** | `openssl rand -base64 48` |
+| `REDIS_URL` | `redis://redis:6379` | No | Default: `redis://localhost:6379` |
+| `LOG_LEVEL` | `info` | No | Default: info |
+| `THROTTLE_TTL` | `60` | No | Seconds |
+| `THROTTLE_LIMIT` | `100` | No | Requests per TTL |
 
 ### Environment Variables (Frontend)
 
-| Variable | Example | Notes |
-|---|---|---|
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `pk_live_...` | Safe to expose to browser |
-| `NEXT_PUBLIC_API_URL` | `https://api.example.com` | Browser-visible API URL |
-| `API_URL` | `http://api:3001` | Server-side internal URL (Docker network) |
-
-### Pre-Start Requirements
-
-```bash
-# Create logs directory (Winston file transports write here)
-mkdir -p apps/api/logs
-
-# Install dependencies
-npm ci
-
-# Build all packages
-npx turbo run build
-
-# Run all migrations
-cd apps/api && npm run migration:run
-```
+| Variable | Example | Required | Notes |
+|----------|---------|----------|-------|
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `pk_live_...` | **Yes** | Safe to expose |
+| `NEXT_PUBLIC_API_URL` | `https://api.example.com` | **Yes** | Browser-accessible API URL |
+| `API_URL` | `http://api:3001` | **Yes** | Server-side (Docker internal network) |
+| `NEXT_PUBLIC_DEMO_CUSTOMER_ID` | *(remove)* | **Remove** | Must be removed before production |
 
 ### Stripe Configuration
 
-- [ ] Register webhook endpoint in Stripe Dashboard: `https://api.example.com/api/v1/webhooks/stripe`
-- [ ] Select webhook events:
-  - `payment_intent.succeeded`
-  - `payment_intent.payment_failed`
-  - `payment_intent.canceled`
-  - `setup_intent.succeeded`
-  - `setup_intent.setup_failed`
-  - `customer.subscription.created`
-  - `customer.subscription.updated`
-  - `customer.subscription.deleted`
-  - `invoice.payment_succeeded`
-  - `invoice.payment_failed`
-  - `customer.updated`
-  - `payment_method.attached`
-  - `payment_method.detached`
-- [ ] Copy webhook signing secret to `STRIPE_WEBHOOK_SECRET`
+1. Go to Stripe Dashboard → Developers → Webhooks → Add endpoint
+2. URL: `https://your-api-host/api/v1/webhooks/stripe`
+3. Select these events:
 
-### Docker Production Build
+```
+payment_intent.succeeded
+payment_intent.payment_failed
+payment_intent.canceled
+payment_intent.processing
+payment_intent.requires_action
+setup_intent.succeeded
+setup_intent.setup_failed
+setup_intent.canceled
+customer.subscription.created
+customer.subscription.updated
+customer.subscription.deleted
+customer.subscription.trial_will_end
+customer.subscription.paused
+customer.subscription.resumed
+invoice.payment_succeeded
+invoice.payment_failed
+invoice.upcoming
+invoice.created
+invoice.finalized
+payment_method.attached
+payment_method.detached
+payment_method.updated
+customer.created
+customer.updated
+customer.deleted
+mandate.updated
+```
+
+4. Copy the signing secret → set `STRIPE_WEBHOOK_SECRET`
+
+---
+
+## Build and Start
 
 ```bash
-# Build API
-docker build -t stripe-api:latest ./apps/api
+# Install
+npm ci
 
-# Build Web
-docker build -t stripe-web:latest ./apps/web
+# Build (Turborepo runs api + web in parallel)
+npx turbo run build
 
-# Start stack
-docker-compose -f docker-compose.yml up -d
+# Start production stack
+docker compose up -d
+
+# Health check
+curl https://your-api-host/api/v1/health
+# Expected:
+# {
+#   "status": "ok",
+#   "info": {
+#     "oracle-database": { "status": "up" },
+#     "stripe-api": { "status": "up" },
+#     "redis": { "status": "up" }
+#   }
+# }
 ```
 
 ---
@@ -90,55 +149,59 @@ docker-compose -f docker-compose.yml up -d
 ## Security Verification
 
 ```bash
-# API security headers
-curl -I http://localhost:3001/api/v1/health
+# 1. Endpoints require authentication
+curl https://api.example.com/api/v1/customers
+# → 401 Unauthorized
 
-# Frontend security headers
-curl -I http://localhost:3000
+# 2. Webhook accepts unauthenticated (uses Stripe sig)
+curl -X POST https://api.example.com/api/v1/webhooks/stripe
+# → 400 Bad Request (missing/invalid signature), NOT 401
 
-# Verify no endpoints are accessible without auth
-curl http://localhost:3001/api/v1/customers
-# Expected: 401 Unauthorized
-
-# Verify webhook is accessible without auth (uses Stripe signature)
-curl -X POST http://localhost:3001/api/v1/webhooks/stripe
-# Expected: 400 Bad Request (missing signature), NOT 401
-
-# Verify body size limit
+# 3. Body size limit
 python3 -c "print('x' * 200000)" | curl -X POST \
-  -H "Content-Type: application/json" \
-  -d @- http://localhost:3001/api/v1/customers
-# Expected: 413 Payload Too Large
+  -H "Content-Type: application/json" -d @- \
+  https://api.example.com/api/v1/customers
+# → 413 Payload Too Large
+
+# 4. Security headers present on API
+curl -I https://api.example.com/api/v1/health | grep -i "content-security-policy\|x-frame-options\|strict-transport"
+
+# 5. Health endpoint public
+curl https://api.example.com/api/v1/health
+# → 200 OK (no auth required)
+
+# 6. Swagger hidden in production
+curl https://api.example.com/api/docs
+# → 404 Not Found
 ```
 
 ---
 
-## Health Checks
+## Monitoring Setup (Minimum for Production)
 
-| Endpoint | Auth Required | Purpose |
-|---|---|---|
-| `GET /api/v1/health` | No | Liveness + DB + Stripe connectivity |
-| `GET /api/v1/health/liveness` | No | Container alive check |
-
----
-
-## Monitoring Recommendations
-
-| Concern | Tool |
-|---|---|
-| Error tracking | Sentry (`@sentry/nestjs` + `@sentry/nextjs`) |
-| Metrics | Prometheus + Grafana (expose `/metrics` via `@willsoto/nestjs-prometheus`) |
-| Logs | Ship `logs/combined.log` to CloudWatch / Datadog / Loki |
-| Uptime | Healthcheck endpoint behind ALB or Kubernetes probe |
+| Concern | Tool | Priority |
+|---------|------|----------|
+| Error tracking | Sentry (`@sentry/nestjs` + `@sentry/nextjs`) | P1 — required |
+| Metrics | Prometheus + Grafana via `@willsoto/nestjs-prometheus` | P1 — required |
+| Distributed traces | SigNoz or Grafana Tempo (replace dev Jaeger) | P2 |
+| Uptime | Health endpoint behind ALB/k8s liveness probe | P1 — required |
+| Log shipping | Ship Pino JSON to CloudWatch / Datadog / Loki | P1 — required |
+| Alerting | PagerDuty / Opsgenie on error rate, p95 latency, DB pool | P2 |
 
 ---
 
-## Known Limitations / Not Yet Implemented
+## Known Gaps (Do Not Ship Without Addressing)
 
-| Item | Impact | Notes |
-|---|---|---|
-| Refresh tokens | Users logged out after 15 min JWT expiry | Implement refresh token rotation |
-| Ownership verification | Any authenticated user can read any customer's data | Add user → customer scoping |
-| Caching | Plans loaded from DB on every request | Add Redis cache with short TTL |
-| E2E tests | No Playwright/Cypress tests | Add before going to production |
-| HTTPS redirect | HTTP not redirected to HTTPS | Configure at load balancer / reverse proxy level |
+| Priority | Gap | Impact |
+|----------|-----|--------|
+| **P0** | Redis circuit breaker missing | Redis blip → cascade 500s on customer endpoints |
+| **P0** | Demo customer ID hardcoded in frontend | All users share one customer's data |
+| **P0** | No refresh tokens | Users locked out after 15 minutes |
+| P1 | User→customer ownership not enforced | Any user can read any customer's data |
+| P1 | No database transactions on Stripe+DB writes | Stripe resource created, DB record missing on DB failure |
+| P1 | In-memory rate limiter fails with multiple replicas | Limits not enforced across horizontal scale |
+| P1 | STRIPE_SUBSCRIPTIONS has no FK to SUBSCRIPTION_PLANS | Plan deletion orphans subscription records |
+| P2 | No test coverage | Zero confidence in regressions |
+| P2 | No CI/CD pipeline | Manual deployments, no automated quality gate |
+| P2 | LOG_FORMAT not in Joi validation schema | Silent misconfiguration |
+| P2 | Email uniqueness is index-only, not constraint | Race condition on concurrent customer creation |

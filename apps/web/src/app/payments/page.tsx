@@ -5,8 +5,7 @@ import {
   useGetCustomerPaymentIntentsQuery,
   type PaymentIntent,
 } from '@/store/apis/paymentIntentsApi';
-
-const DEMO_CUSTOMER_ID = process.env.NEXT_PUBLIC_DEMO_CUSTOMER_ID ?? '';
+import { useGetMyCustomerQuery } from '@/store/apis/customersApi';
 
 // ── Display helpers ──────────────────────────────────────────────────────────
 
@@ -77,7 +76,8 @@ function PaymentItem({ pi }: { pi: PaymentIntent }) {
 export default function PaymentsPage() {
   const [page, setPage] = useState(1);
   const limit = 10;
-  const customerId = DEMO_CUSTOMER_ID;
+  const { data: myCustomer } = useGetMyCustomerQuery();
+  const customerId = myCustomer?.id ?? '';
   const skip = !customerId;
 
   const {

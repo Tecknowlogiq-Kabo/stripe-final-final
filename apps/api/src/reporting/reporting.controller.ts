@@ -1,7 +1,17 @@
-import { Controller, Get, Param, Query, ParseIntPipe, ParseUUIDPipe } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Query,
+  ParseIntPipe,
+  ParseUUIDPipe,
+} from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ReportingService } from './reporting.service';
+import { Public } from '../auth/decorators/public.decorator';
 
 @Controller('reports')
+@Throttle({ default: { limit: 10, ttl: 60_000 } })
 export class ReportingController {
   constructor(private readonly reportingService: ReportingService) {}
 
@@ -30,6 +40,8 @@ export class ReportingController {
     return this.reportingService.getFailedPaymentsByDeclineCode();
   }
 
+  /** Public so monitoring tools can poll without auth. */
+  @Public()
   @Get('webhooks/health')
   getWebhookHealth() {
     return this.reportingService.getWebhookHealth();

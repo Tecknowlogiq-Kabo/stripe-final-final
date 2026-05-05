@@ -1,5 +1,14 @@
-import { createApi, fetchBaseQuery, FetchBaseQueryError } from '@reduxjs/toolkit/query/react';
+import {
+  createApi,
+  fetchBaseQuery,
+  FetchBaseQueryError,
+  BaseQueryFn,
+  FetchArgs,
+  FetchBaseQueryMeta,
+} from '@reduxjs/toolkit/query/react';
 import type { RootState } from './index';
+import { setCredentials, clearCredentials } from './slices/authSlice';
+import type { AuthResult } from '../actions/auth';
 
 /**
  * Root RTK Query API slice — all feature slices extend this via `injectEndpoints`.
@@ -9,28 +18,66 @@ import type { RootState } from './index';
  * Next.js Server Actions because they need the Docker-internal URL and server-side
  * idempotency-key generation.
  */
+const rawBaseQuery = fetchBaseQuery({
+  baseUrl: `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/v1`,
+  prepareHeaders: (headers, { getState }) => {
+    headers.set('Content-Type', 'application/json');
+    const token = (getState() as RootState).auth?.token;
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+    return headers;
+  },
+  responseHandler: async (response) => {
+    const text = await response.text();
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  },
+});
+
+/**
+ * Wraps rawBaseQuery with silent token refresh on 401.
+ * Uses the stored refreshToken to get a new access/refresh pair, then retries.
+ * On refresh failure, clears credentials (forces re-login).
+ */
+const baseQueryWithReauth: BaseQueryFn<
+  string | FetchArgs,
+  unknown,
+  FetchBaseQueryError,
+  object,
+  FetchBaseQueryMeta
+> = async (args, api, extra) => {
+  let result = await rawBaseQuery(args, api, extra);
+
+  if (result.error?.status === 401) {
+    const refreshToken = (api.getState() as RootState).auth?.refreshToken;
+    if (refreshToken) {
+      const refreshResult = await rawBaseQuery(
+        { url: '/auth/refresh', method: 'POST', body: { refreshToken } },
+        api,
+        extra,
+      );
+      if (refreshResult.data) {
+        api.dispatch(setCredentials(refreshResult.data as AuthResult));
+        result = await rawBaseQuery(args, api, extra);
+      } else {
+        api.dispatch(clearCredentials());
+      }
+    } else {
+      api.dispatch(clearCredentials());
+    }
+  }
+
+  return result;
+};
+
 export const baseApi = createApi({
   reducerPath: 'api',
-  baseQuery: fetchBaseQuery({
-    baseUrl: `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/v1`,
-    prepareHeaders: (headers, { getState }) => {
-      headers.set('Content-Type', 'application/json');
-      const token = (getState() as RootState).auth?.token;
-      if (token) {
-        headers.set('Authorization', `Bearer ${token}`);
-      }
-      return headers;
-    },
-    responseHandler: async (response) => {
-      const text = await response.text();
-      if (!text) return null;
-      try {
-        return JSON.parse(text);
-      } catch {
-        return text;
-      }
-    },
-  }),
+  baseQuery: baseQueryWithReauth,
   tagTypes: ['Customer', 'PaymentMethod', 'PaymentIntent', 'Subscription', 'Plan'],
   endpoints: () => ({}),
 });

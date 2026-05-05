@@ -9,8 +9,9 @@ interface AuthInput {
   password: string;
 }
 
-interface AuthResult {
+export interface AuthResult {
   accessToken: string;
+  refreshToken: string;
   user: { id: string; email: string };
 }
 
@@ -28,14 +29,22 @@ async function callAuth(endpoint: string, input: AuthInput): Promise<AuthResult>
   }
 
   const result: AuthResult = await response.json();
+  const jar = cookies();
 
-  // Store in httpOnly cookie so server actions can forward it to the API
-  cookies().set('auth_token', result.accessToken, {
+  jar.set('auth_token', result.accessToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict',
     path: '/',
     maxAge: 60 * 15, // 15 minutes — matches JWT expiry
+  });
+
+  jar.set('refresh_token', result.refreshToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 7, // 7 days — matches Redis TTL
   });
 
   return result;
@@ -50,5 +59,18 @@ export async function registerAction(input: AuthInput): Promise<AuthResult> {
 }
 
 export async function logoutAction(): Promise<void> {
-  cookies().delete('auth_token');
+  const jar = cookies();
+  const refreshToken = jar.get('refresh_token')?.value;
+
+  if (refreshToken) {
+    // Best-effort: revoke the refresh token server-side
+    await fetch(`${API_URL}/api/v1/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    }).catch(() => {});
+  }
+
+  jar.delete('auth_token');
+  jar.delete('refresh_token');
 }

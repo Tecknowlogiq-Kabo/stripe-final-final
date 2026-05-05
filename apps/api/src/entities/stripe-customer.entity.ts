@@ -36,6 +36,9 @@ export class StripeCustomer {
   @Column({ name: 'IDEMPOTENCY_KEY', type: 'varchar2', length: 255, nullable: true })
   idempotencyKey?: string;
 
+  @Column({ name: 'USER_ID', type: 'varchar2', length: 36, nullable: true })
+  userId?: string;
+
   @Column({ name: 'IS_DELETED', type: 'number', width: 1, default: 0 })
   isDeleted: boolean;
 

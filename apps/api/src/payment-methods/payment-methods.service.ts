@@ -34,6 +34,15 @@ export class PaymentMethodsService {
     private readonly customersService: CustomersService,
   ) {}
 
+  async findById(id: string): Promise<StripePaymentMethod> {
+    const [pm] = await this.dataSource.query<StripePaymentMethod[]>(
+      `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE ID = :1 AND ROWNUM = 1`,
+      [id],
+    );
+    if (!pm) throw new NotFoundException(`PaymentMethod ${id} not found`);
+    return pm;
+  }
+
   async listByCustomer(
     customerId: string,
     page = 1,

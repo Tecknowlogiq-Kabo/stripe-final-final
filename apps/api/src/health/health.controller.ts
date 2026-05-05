@@ -6,7 +6,9 @@ import {
   TypeOrmHealthIndicator,
   HttpHealthIndicator,
   HealthCheckResult,
+  HealthIndicatorResult,
 } from '@nestjs/terminus';
+import { RedisService } from '../redis/redis.service';
 
 @Controller('health')
 export class HealthController {
@@ -14,6 +16,7 @@ export class HealthController {
     private readonly health: HealthCheckService,
     private readonly db: TypeOrmHealthIndicator,
     private readonly http: HttpHealthIndicator,
+    private readonly redis: RedisService,
   ) {}
 
   @Public()
@@ -27,6 +30,10 @@ export class HealthController {
           'stripe-api',
           'https://api.stripe.com/healthcheck',
         ),
+      async (): Promise<HealthIndicatorResult> => {
+        const pong = await this.redis.ping();
+        return { redis: { status: pong === 'PONG' ? 'up' : 'down' } };
+      },
     ]);
   }
 }
