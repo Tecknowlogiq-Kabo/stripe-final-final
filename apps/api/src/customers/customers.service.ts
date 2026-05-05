@@ -68,20 +68,39 @@ export class CustomersService {
     });
 
     const id = randomUUID();
-    await this.dataSource.query(
-      `INSERT INTO STRIPE_CUSTOMERS (ID, STRIPE_CUSTOMER_ID, EMAIL, NAME, PHONE, METADATA, IDEMPOTENCY_KEY, USER_ID, IS_DELETED, CREATED_AT, UPDATED_AT)
-       VALUES (:1, :2, :3, :4, :5, :6, :7, :8, 0, SYSDATE, SYSDATE)`,
-      [
-        id,
-        stripeCustomer.id,
-        dto.email,
-        dto.name ?? null,
-        dto.phone ?? null,
-        dto.metadata ? JSON.stringify(dto.metadata) : null,
-        idempotencyKey,
-        userId,
-      ],
-    );
+    const runner = this.dataSource.createQueryRunner();
+    await runner.connect();
+    await runner.startTransaction();
+    try {
+      await runner.query(
+        `INSERT INTO STRIPE_CUSTOMERS (ID, STRIPE_CUSTOMER_ID, EMAIL, NAME, PHONE, METADATA, IDEMPOTENCY_KEY, USER_ID, IS_DELETED, CREATED_AT, UPDATED_AT)
+         VALUES (:1, :2, :3, :4, :5, :6, :7, :8, 0, SYSDATE, SYSDATE)`,
+        [
+          id,
+          stripeCustomer.id,
+          dto.email,
+          dto.name ?? null,
+          dto.phone ?? null,
+          dto.metadata ? JSON.stringify(dto.metadata) : null,
+          idempotencyKey,
+          userId,
+        ],
+      );
+      await runner.commitTransaction();
+    } catch (err) {
+      await runner.rollbackTransaction();
+      // Prevent orphaned Stripe customer when local insert fails
+      this.stripeService.customers.del(stripeCustomer.id).catch((cleanupErr: Error) =>
+        this.logger.error({
+          message: 'Failed to clean up orphaned Stripe customer',
+          stripeCustomerId: stripeCustomer.id,
+          error: cleanupErr.message,
+        }),
+      );
+      throw err;
+    } finally {
+      await runner.release();
+    }
 
     return this.findById(id);
   }

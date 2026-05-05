@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { Exclude } from 'class-transformer';
 
 @Entity({ name: 'APP_USERS' })
 export class User {
@@ -16,6 +17,7 @@ export class User {
   @Column({ name: 'EMAIL', type: 'varchar2', length: 255 })
   email: string;
 
+  @Exclude()
   @Column({ name: 'PASSWORD_HASH', type: 'varchar2', length: 255 })
   passwordHash: string;
 

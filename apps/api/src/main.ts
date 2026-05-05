@@ -1,8 +1,8 @@
 // MUST be first — patches Node.js internals before any other import
 import './instrumentation';
 
-import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { NestFactory, Reflector } from '@nestjs/core';
+import { ValidationPipe, VersioningType, ClassSerializerInterceptor } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from 'nestjs-pino';
 import helmet from 'helmet';
@@ -91,6 +91,9 @@ async function bootstrap() {
       },
     }),
   );
+
+  // Strip @Exclude() fields (e.g. passwordHash) from all responses
+  app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
   // Swagger — dev/staging only; never exposed in production
   if (configService.get<string>('NODE_ENV') !== 'production') {

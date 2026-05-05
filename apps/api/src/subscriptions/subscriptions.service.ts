@@ -80,24 +80,43 @@ export class SubscriptionsService {
     });
 
     const id = randomUUID();
-    await this.dataSource.query(
-      `INSERT INTO STRIPE_SUBSCRIPTIONS (ID, STRIPE_SUB_ID, STATUS, CURRENT_PERIOD_START, CURRENT_PERIOD_END, CANCEL_AT_PERIOD_END, TRIAL_START, TRIAL_END, STRIPE_PRICE_ID, DEFAULT_PM_ID, CUSTOMER_ID, METADATA, CREATED_AT, UPDATED_AT)
-       VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, SYSDATE, SYSDATE)`,
-      [
-        id,
-        stripeSub.id,
-        stripeSub.status,
-        new Date(stripeSub.current_period_start * 1000),
-        new Date(stripeSub.current_period_end * 1000),
-        stripeSub.cancel_at_period_end ? 1 : 0,
-        stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : null,
-        stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null,
-        dto.priceId,
-        dto.paymentMethodId ?? null,
-        customer.id,
-        dto.metadata ? JSON.stringify(dto.metadata) : null,
-      ],
-    );
+    const runner = this.dataSource.createQueryRunner();
+    await runner.connect();
+    await runner.startTransaction();
+    try {
+      await runner.query(
+        `INSERT INTO STRIPE_SUBSCRIPTIONS (ID, STRIPE_SUB_ID, STATUS, CURRENT_PERIOD_START, CURRENT_PERIOD_END, CANCEL_AT_PERIOD_END, TRIAL_START, TRIAL_END, STRIPE_PRICE_ID, DEFAULT_PM_ID, CUSTOMER_ID, METADATA, CREATED_AT, UPDATED_AT)
+         VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, SYSDATE, SYSDATE)`,
+        [
+          id,
+          stripeSub.id,
+          stripeSub.status,
+          new Date(stripeSub.current_period_start * 1000),
+          new Date(stripeSub.current_period_end * 1000),
+          stripeSub.cancel_at_period_end ? 1 : 0,
+          stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : null,
+          stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null,
+          dto.priceId,
+          dto.paymentMethodId ?? null,
+          customer.id,
+          dto.metadata ? JSON.stringify(dto.metadata) : null,
+        ],
+      );
+      await runner.commitTransaction();
+    } catch (err) {
+      await runner.rollbackTransaction();
+      // Prevent orphaned Stripe subscription when local insert fails
+      this.stripeService.subscriptions.cancel(stripeSub.id).catch((cleanupErr: Error) =>
+        this.logger.error({
+          message: 'Failed to clean up orphaned Stripe subscription',
+          stripeSubscriptionId: stripeSub.id,
+          error: cleanupErr.message,
+        }),
+      );
+      throw err;
+    } finally {
+      await runner.release();
+    }
 
     return this.findById(id);
   }

@@ -190,52 +190,65 @@ export class PaymentMethodsService {
       return;
     }
 
-    const [existing] = await this.dataSource.query<StripePaymentMethod[]>(
-      `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE STRIPE_PM_ID = :1 AND ROWNUM = 1`,
-      [stripePM.id],
-    );
-
     const fields = this.extractPmFields(stripePM);
-    if (existing) {
-      await this.dataSource.query(
-        `UPDATE STRIPE_PAYMENT_METHODS SET TYPE = :1, LAST4 = :2, BRAND = :3, EXP_MONTH = :4, EXP_YEAR = :5, FINGERPRINT = :6, DETAILS = :7, BILLING_DETAILS = :8, CARD_WALLET_TYPE = :9, COUNTRY = :10, FUNDING = :11, UPDATED_AT = SYSDATE WHERE ID = :12`,
-        [
-          fields.type,
-          fields.last4 ?? null,
-          fields.brand ?? null,
-          fields.expMonth ?? null,
-          fields.expYear ?? null,
-          fields.fingerprint ?? null,
-          fields.details ?? null,
-          fields.billingDetails ?? null,
-          fields.cardWalletType ?? null,
-          fields.country ?? null,
-          fields.funding ?? null,
-          existing.id,
-        ],
-      );
-    } else {
-      const id = randomUUID();
-      await this.dataSource.query(
-        `INSERT INTO STRIPE_PAYMENT_METHODS (ID, STRIPE_PM_ID, TYPE, LAST4, BRAND, EXP_MONTH, EXP_YEAR, FINGERPRINT, DETAILS, BILLING_DETAILS, CARD_WALLET_TYPE, COUNTRY, FUNDING, CUSTOMER_ID, IS_DEFAULT, CREATED_AT, UPDATED_AT)
-         VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, :14, 0, SYSDATE, SYSDATE)`,
-        [
-          id,
-          stripePM.id,
-          fields.type,
-          fields.last4 ?? null,
-          fields.brand ?? null,
-          fields.expMonth ?? null,
-          fields.expYear ?? null,
-          fields.fingerprint ?? null,
-          fields.details ?? null,
-          fields.billingDetails ?? null,
-          fields.cardWalletType ?? null,
-          fields.country ?? null,
-          fields.funding ?? null,
-          customer.id,
-        ],
-      );
+    const runner = this.dataSource.createQueryRunner();
+    await runner.connect();
+    await runner.startTransaction();
+    try {
+      const existing: StripePaymentMethod | undefined = (
+        await runner.query(
+          `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE STRIPE_PM_ID = :1 AND ROWNUM = 1`,
+          [stripePM.id],
+        ) as StripePaymentMethod[]
+      )[0];
+
+      if (existing) {
+        await runner.query(
+          `UPDATE STRIPE_PAYMENT_METHODS SET TYPE = :1, LAST4 = :2, BRAND = :3, EXP_MONTH = :4, EXP_YEAR = :5, FINGERPRINT = :6, DETAILS = :7, BILLING_DETAILS = :8, CARD_WALLET_TYPE = :9, COUNTRY = :10, FUNDING = :11, UPDATED_AT = SYSDATE WHERE ID = :12`,
+          [
+            fields.type,
+            fields.last4 ?? null,
+            fields.brand ?? null,
+            fields.expMonth ?? null,
+            fields.expYear ?? null,
+            fields.fingerprint ?? null,
+            fields.details ?? null,
+            fields.billingDetails ?? null,
+            fields.cardWalletType ?? null,
+            fields.country ?? null,
+            fields.funding ?? null,
+            existing.id,
+          ],
+        );
+      } else {
+        const id = randomUUID();
+        await runner.query(
+          `INSERT INTO STRIPE_PAYMENT_METHODS (ID, STRIPE_PM_ID, TYPE, LAST4, BRAND, EXP_MONTH, EXP_YEAR, FINGERPRINT, DETAILS, BILLING_DETAILS, CARD_WALLET_TYPE, COUNTRY, FUNDING, CUSTOMER_ID, IS_DEFAULT, CREATED_AT, UPDATED_AT)
+           VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, :14, 0, SYSDATE, SYSDATE)`,
+          [
+            id,
+            stripePM.id,
+            fields.type,
+            fields.last4 ?? null,
+            fields.brand ?? null,
+            fields.expMonth ?? null,
+            fields.expYear ?? null,
+            fields.fingerprint ?? null,
+            fields.details ?? null,
+            fields.billingDetails ?? null,
+            fields.cardWalletType ?? null,
+            fields.country ?? null,
+            fields.funding ?? null,
+            customer.id,
+          ],
+        );
+      }
+      await runner.commitTransaction();
+    } catch (err) {
+      await runner.rollbackTransaction();
+      throw err;
+    } finally {
+      await runner.release();
     }
   }
 

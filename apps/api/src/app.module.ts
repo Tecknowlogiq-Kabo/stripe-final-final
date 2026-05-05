@@ -53,6 +53,12 @@ import { RequestTimeoutMiddleware } from './common/middleware/request-timeout.mi
             ttl: 60_000,
             limit: 20,
           },
+          {
+            // Strict limit for authentication endpoints to prevent brute-force
+            name: 'auth',
+            ttl: 60_000,
+            limit: 5,
+          },
         ],
         storage,
       }),
