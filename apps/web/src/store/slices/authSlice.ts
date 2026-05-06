@@ -6,14 +6,10 @@ interface AuthUser {
 }
 
 interface AuthState {
-  token: string | null;
-  refreshToken: string | null;
   user: AuthUser | null;
 }
 
 const initialState: AuthState = {
-  token: null,
-  refreshToken: null,
   user: null,
 };
 
@@ -21,17 +17,10 @@ const authSlice = createSlice({
   name: 'auth',
   initialState,
   reducers: {
-    setCredentials(
-      state,
-      action: PayloadAction<{ accessToken: string; refreshToken: string; user: AuthUser }>,
-    ) {
-      state.token = action.payload.accessToken;
-      state.refreshToken = action.payload.refreshToken;
+    setCredentials(state, action: PayloadAction<{ user: AuthUser }>) {
       state.user = action.payload.user;
     },
     clearCredentials(state) {
-      state.token = null;
-      state.refreshToken = null;
       state.user = null;
     },
   },

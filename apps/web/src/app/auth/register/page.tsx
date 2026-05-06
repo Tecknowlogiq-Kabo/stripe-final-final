@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDispatch } from 'react-redux';
-import { registerAction } from '@/actions/auth';
 import { setCredentials } from '@/store/slices/authSlice';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -19,8 +20,20 @@ export default function RegisterPage() {
     setError(null);
     setLoading(true);
     try {
-      const result = await registerAction({ email, password });
-      dispatch(setCredentials(result));
+      const response = await fetch(`${API_URL}/api/v1/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message ?? 'Registration failed');
+      }
+
+      const result = await response.json();
+      dispatch(setCredentials({ user: result.user }));
       router.push('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');

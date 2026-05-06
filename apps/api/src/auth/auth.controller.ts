@@ -80,7 +80,8 @@ export class AuthController {
     return result;
   }
 
-  /** Revoke the refresh token (logout). */
+  /** Revoke the refresh token (logout). Public so expired JWT doesn't block revocation. */
+  @Public()
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {

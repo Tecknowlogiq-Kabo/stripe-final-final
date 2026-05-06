@@ -7,7 +7,6 @@ import {
   FetchBaseQueryMeta,
 } from '@reduxjs/toolkit/query/react';
 import { setCredentials, clearCredentials } from './slices/authSlice';
-import type { AuthResult } from '../actions/auth';
 
 /**
  * Root RTK Query API slice — all feature slices extend this via `injectEndpoints`.
@@ -56,7 +55,8 @@ const baseQueryWithReauth: BaseQueryFn<
       extra,
     );
     if (refreshResult.data) {
-      api.dispatch(setCredentials(refreshResult.data as AuthResult));
+      const { user } = refreshResult.data as { user: { id: string; email: string } };
+      api.dispatch(setCredentials({ user }));
       result = await rawBaseQuery(args, api, extra);
     } else {
       api.dispatch(clearCredentials());
