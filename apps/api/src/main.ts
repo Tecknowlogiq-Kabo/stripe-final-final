@@ -8,6 +8,7 @@ import { Logger } from 'nestjs-pino';
 import helmet from 'helmet';
 import compression from 'compression';
 import * as express from 'express';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 process.on('unhandledRejection', (reason) => {
@@ -38,6 +39,7 @@ async function bootstrap() {
 
   // Limit request body size — prevents DoS via oversized payloads
   // Webhook raw body is captured by NestFactory rawBody:true before this applies
+  app.use(cookieParser());
   app.use(express.json({ limit: '100kb' }));
   app.use(express.urlencoded({ extended: false, limit: '100kb' }));
 

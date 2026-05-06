@@ -16,11 +16,16 @@ export class ApiError extends Error {
   }
 }
 
-/** Returns Authorization header value from httpOnly cookie (server-side only). */
-function getAuthHeader(): Record<string, string> {
+/** Builds Cookie header from httpOnly cookies (server-side only). */
+function getCookieHeader(): Record<string, string> {
   try {
-    const token = cookies().get('auth_token')?.value;
-    return token ? { Authorization: `Bearer ${token}` } : {};
+    const jar = cookies();
+    const authToken = jar.get('auth_token')?.value;
+    const refreshToken = jar.get('refresh_token')?.value;
+    const parts: string[] = [];
+    if (authToken) parts.push(`auth_token=${authToken}`);
+    if (refreshToken) parts.push(`refresh_token=${refreshToken}`);
+    return parts.length ? { Cookie: parts.join('; ') } : {};
   } catch {
     // cookies() throws outside of Server Component/Action context — safe to ignore
     return {};
@@ -33,9 +38,10 @@ async function request<T>(
 ): Promise<T> {
   const response = await fetch(`${API_URL}/api/v1${path}`, {
     ...options,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...getAuthHeader(),
+      ...getCookieHeader(),
       ...options.headers,
     },
     cache: 'no-store',

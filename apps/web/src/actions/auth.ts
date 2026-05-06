@@ -20,6 +20,7 @@ async function callAuth(endpoint: string, input: AuthInput): Promise<AuthResult>
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    credentials: 'include',
     cache: 'no-store',
   });
 
@@ -62,14 +63,15 @@ export async function logoutAction(): Promise<void> {
   const jar = cookies();
   const refreshToken = jar.get('refresh_token')?.value;
 
-  if (refreshToken) {
-    // Best-effort: revoke the refresh token server-side
-    await fetch(`${API_URL}/api/v1/auth/logout`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    }).catch(() => {});
-  }
+  // Best-effort: revoke the refresh token server-side
+  await fetch(`${API_URL}/api/v1/auth/logout`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(refreshToken ? { Cookie: `refresh_token=${refreshToken}` } : {}),
+    },
+    credentials: 'include',
+  }).catch(() => {});
 
   jar.delete('auth_token');
   jar.delete('refresh_token');

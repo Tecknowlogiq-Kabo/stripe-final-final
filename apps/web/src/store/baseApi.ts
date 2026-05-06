@@ -6,7 +6,6 @@ import {
   FetchArgs,
   FetchBaseQueryMeta,
 } from '@reduxjs/toolkit/query/react';
-import type { RootState } from './index';
 import { setCredentials, clearCredentials } from './slices/authSlice';
 import type { AuthResult } from '../actions/auth';
 
@@ -20,12 +19,9 @@ import type { AuthResult } from '../actions/auth';
  */
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/v1`,
-  prepareHeaders: (headers, { getState }) => {
+  credentials: 'include',
+  prepareHeaders: (headers) => {
     headers.set('Content-Type', 'application/json');
-    const token = (getState() as RootState).auth?.token;
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
-    }
     return headers;
   },
   responseHandler: async (response) => {
@@ -54,19 +50,14 @@ const baseQueryWithReauth: BaseQueryFn<
   let result = await rawBaseQuery(args, api, extra);
 
   if (result.error?.status === 401) {
-    const refreshToken = (api.getState() as RootState).auth?.refreshToken;
-    if (refreshToken) {
-      const refreshResult = await rawBaseQuery(
-        { url: '/auth/refresh', method: 'POST', body: { refreshToken } },
-        api,
-        extra,
-      );
-      if (refreshResult.data) {
-        api.dispatch(setCredentials(refreshResult.data as AuthResult));
-        result = await rawBaseQuery(args, api, extra);
-      } else {
-        api.dispatch(clearCredentials());
-      }
+    const refreshResult = await rawBaseQuery(
+      { url: '/auth/refresh', method: 'POST', body: {} },
+      api,
+      extra,
+    );
+    if (refreshResult.data) {
+      api.dispatch(setCredentials(refreshResult.data as AuthResult));
+      result = await rawBaseQuery(args, api, extra);
     } else {
       api.dispatch(clearCredentials());
     }
