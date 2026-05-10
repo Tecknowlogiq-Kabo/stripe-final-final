@@ -11,7 +11,7 @@ export default () => ({
   stripe: {
     secretKey: process.env.STRIPE_SECRET_KEY,
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
-    apiVersion: process.env.STRIPE_API_VERSION ?? '2025-04-30',
+    apiVersion: process.env.STRIPE_API_VERSION ?? '2026-03-25.dahlia',
   },
   logging: {
     level: process.env.LOG_LEVEL ?? 'info',
