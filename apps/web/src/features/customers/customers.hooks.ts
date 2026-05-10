@@ -11,6 +11,8 @@ export function useMyCustomer() {
   return useQuery({
     queryKey: customerKeys.me,
     queryFn:  customersService.me,
+    // 404 = no customer yet (expected for new users) — don't waste a retry
+    retry: (count, err) => !(err instanceof Error && 'status' in err && (err as { status: number }).status === 404) && count < 1,
   });
 }
 

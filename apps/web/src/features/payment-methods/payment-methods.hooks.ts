@@ -33,3 +33,13 @@ export function useSetDefaultPaymentMethod() {
       qc.invalidateQueries({ queryKey: paymentMethodKeys.byCustomer(vars.customerId) }),
   });
 }
+
+export function useAttachPaymentMethod() {
+  const qc = useQueryClient();
+  return useMutation<PaymentMethod, Error, { paymentMethodId: string; customerId: string }>({
+    mutationFn: ({ paymentMethodId, customerId }) =>
+      paymentMethodsService.attach(paymentMethodId, customerId),
+    onSuccess: (_data, vars) =>
+      qc.invalidateQueries({ queryKey: paymentMethodKeys.byCustomer(vars.customerId) }),
+  });
+}

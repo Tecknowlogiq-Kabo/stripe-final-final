@@ -1,52 +1,27 @@
 'use server';
 
-const API_URL = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+export type { AuthResult } from '@/features/auth/auth.types';
 
-interface AuthInput {
-  email: string;
-  password: string;
-}
-
-export interface AuthResult {
-  accessToken: string;
-  refreshToken: string;
-  user: { id: string; email: string };
-}
+const API_URL = process.env.API_URL ?? 'http://localhost:3001';
 
 /**
- * Login and register are handled client-side (direct fetch with credentials: 'include')
- * so the browser receives the backend's Set-Cookie headers directly.
- *
- * These Server Action wrappers remain available for any server-side code that needs them.
+ * Revokes the refresh token server-side, deletes both auth cookies from the
+ * browser via Set-Cookie headers, then redirects to /auth/login.
  */
-async function callAuth(endpoint: string, input: AuthInput): Promise<AuthResult> {
-  const response = await fetch(`${API_URL}/api/v1/auth/${endpoint}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-    credentials: 'include',
-    cache: 'no-store',
-  });
+export async function logoutAction(): Promise<void> {
+  const jar = cookies();
+  const refreshToken = jar.get('refresh_token')?.value;
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message ?? 'Auth failed');
+  if (refreshToken) {
+    await fetch(`${API_URL}/api/v1/auth/logout`, {
+      method: 'POST',
+      headers: { Cookie: `refresh_token=${refreshToken}` },
+    }).catch(() => {});
   }
 
-  return response.json();
-}
-
-export async function loginAction(input: AuthInput): Promise<AuthResult> {
-  return callAuth('login', input);
-}
-
-export async function registerAction(input: AuthInput): Promise<AuthResult> {
-  return callAuth('register', input);
-}
-
-export async function logoutAction(): Promise<void> {
-  await fetch(`${API_URL}/api/v1/auth/logout`, {
-    method: 'POST',
-    credentials: 'include',
-  }).catch(() => {});
+  jar.delete('auth_token');
+  jar.delete('refresh_token');
+  redirect('/auth/login');
 }

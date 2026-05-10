@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { QueryProvider } from '@/providers/QueryProvider';
+import { cookies } from 'next/headers';
+import { logoutAction } from '@/actions/auth';
 
 export const metadata: Metadata = {
   title: 'Stripe Integration',
@@ -12,6 +14,8 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const isAuthenticated = !!cookies().get('auth_token')?.value;
+
   return (
     <html lang="en">
       <body className="min-h-screen bg-gray-50">
@@ -21,11 +25,28 @@ export default function RootLayout({
               <a href="/" className="text-xl font-bold text-primary-600">
                 StripeApp
               </a>
-              <div className="flex gap-6 text-sm font-medium text-gray-600">
-                <a href="/checkout" className="hover:text-primary-600">Checkout</a>
-                <a href="/payments" className="hover:text-primary-600">Payments</a>
-                <a href="/subscriptions" className="hover:text-primary-600">Subscriptions</a>
-                <a href="/payment-methods" className="hover:text-primary-600">Payment Methods</a>
+              <div className="flex items-center gap-6 text-sm font-medium text-gray-600">
+                {isAuthenticated ? (
+                  <>
+                    <a href="/checkout" className="hover:text-primary-600">Checkout</a>
+                    <a href="/payments" className="hover:text-primary-600">Payments</a>
+                    <a href="/subscriptions" className="hover:text-primary-600">Subscriptions</a>
+                    <a href="/payment-methods" className="hover:text-primary-600">Payment Methods</a>
+                    <a href="/account" className="hover:text-primary-600">Account</a>
+                    <form action={logoutAction}>
+                      <button type="submit" className="hover:text-red-600 transition-colors">
+                        Sign out
+                      </button>
+                    </form>
+                  </>
+                ) : (
+                  <>
+                    <a href="/auth/login" className="hover:text-primary-600">Sign in</a>
+                    <a href="/auth/register" className="btn-primary text-sm px-4 py-2">
+                      Register
+                    </a>
+                  </>
+                )}
               </div>
             </div>
           </nav>

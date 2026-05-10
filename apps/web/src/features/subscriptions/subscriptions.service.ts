@@ -6,19 +6,26 @@ import type {
   UpdateSubscriptionInput,
 } from './subscriptions.types';
 
-export const subscriptionsService = {
-  listPlans: (): Promise<SubscriptionPlan[]> =>
-    apiClient.get('/subscriptions/plans'),
+class SubscriptionsService {
+  listPlans(): Promise<SubscriptionPlan[]> {
+    return apiClient.get('/subscriptions/plans');
+  }
 
-  listByCustomer: (customerId: string): Promise<Subscription[]> =>
-    apiClient.get(`/subscriptions/customer/${customerId}`),
+  listByCustomer(customerId: string): Promise<Subscription[]> {
+    return apiClient.get(`/subscriptions/customer/${customerId}`);
+  }
 
-  create: (data: CreateSubscriptionInput): Promise<Subscription> =>
-    apiClient.post('/subscriptions', data, { 'Idempotency-Key': crypto.randomUUID() }),
+  create(data: CreateSubscriptionInput): Promise<Subscription> {
+    return apiClient.post('/subscriptions', data, { 'Idempotency-Key': crypto.randomUUID() });
+  }
 
-  update: (id: string, data: UpdateSubscriptionInput): Promise<Subscription> =>
-    apiClient.patch(`/subscriptions/${id}`, data, { 'Idempotency-Key': crypto.randomUUID() }),
+  update(id: string, data: UpdateSubscriptionInput): Promise<Subscription> {
+    return apiClient.patch(`/subscriptions/${id}`, data, { 'Idempotency-Key': crypto.randomUUID() });
+  }
 
-  cancel: (id: string): Promise<Subscription> =>
-    apiClient.delete(`/subscriptions/${id}`),
-};
+  cancel(id: string): Promise<Subscription> {
+    return apiClient.delete(`/subscriptions/${id}`);
+  }
+}
+
+export const subscriptionsService = new SubscriptionsService();

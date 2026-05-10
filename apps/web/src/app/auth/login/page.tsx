@@ -2,39 +2,25 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { useLogin } from '@/features/auth/auth.hooks';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { mutate: login, isPending, error } = useLogin();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const response = await fetch(`${API_URL}/api/v1/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.message ?? 'Login failed');
-      }
-
-      router.push('/');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
-    } finally {
-      setLoading(false);
-    }
+    login(
+      { email, password },
+      {
+        onSuccess: () => {
+          const redirectTo = new URLSearchParams(window.location.search).get('redirect') ?? '/';
+          router.push(redirectTo);
+        },
+      },
+    );
   };
 
   return (
@@ -69,10 +55,10 @@ export default function LoginPage() {
             />
           </div>
           {error && (
-            <p className="text-sm text-red-600">{error}</p>
+            <p className="text-sm text-red-600">{error.message}</p>
           )}
-          <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Signing in…' : 'Sign in'}
+          <button type="submit" disabled={isPending} className="btn-primary w-full">
+            {isPending ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
         <p className="mt-4 text-sm text-center text-gray-500">

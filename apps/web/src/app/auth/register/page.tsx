@@ -2,39 +2,25 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { useRegister } from '@/features/auth/auth.hooks';
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { mutate: register, isPending, error } = useRegister();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const response = await fetch(`${API_URL}/api/v1/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.message ?? 'Registration failed');
-      }
-
-      router.push('/');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
-    } finally {
-      setLoading(false);
-    }
+    register(
+      { email, password },
+      {
+        onSuccess: () => {
+          const redirectTo = new URLSearchParams(window.location.search).get('redirect') ?? '/';
+          router.push(redirectTo);
+        },
+      },
+    );
   };
 
   return (
@@ -70,10 +56,10 @@ export default function RegisterPage() {
             />
           </div>
           {error && (
-            <p className="text-sm text-red-600">{error}</p>
+            <p className="text-sm text-red-600">{error.message}</p>
           )}
-          <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Creating account…' : 'Create account'}
+          <button type="submit" disabled={isPending} className="btn-primary w-full">
+            {isPending ? 'Creating account…' : 'Create account'}
           </button>
         </form>
         <p className="mt-4 text-sm text-center text-gray-500">
