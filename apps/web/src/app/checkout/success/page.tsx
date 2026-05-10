@@ -11,7 +11,6 @@ function useVerifyPayment() {
   const [loading, setLoading] = useState(true);
 
   const paymentIntentId = searchParams.get('payment_intent');
-  const redirectStatus = searchParams.get('redirect_status');
 
   useEffect(() => {
     async function verify() {
@@ -25,27 +24,12 @@ function useVerifyPayment() {
         return;
       }
 
-      const verification = await verifyPaymentIntent(paymentIntentId);
-
-      // If server-side verification is unknown, fall back to redirect_status
-      if (verification.status === 'unknown' && redirectStatus) {
-        const isSuccess = redirectStatus === 'succeeded';
-        setResult({
-          status: isSuccess ? 'succeeded' : 'failed',
-          message: isSuccess
-            ? 'Your payment was successful.'
-            : `Your payment could not be completed (status: ${redirectStatus}).`,
-          paymentIntentId,
-        });
-      } else {
-        setResult(verification);
-      }
-
+      setResult(await verifyPaymentIntent(paymentIntentId));
       setLoading(false);
     }
 
     verify();
-  }, [paymentIntentId, redirectStatus]);
+  }, [paymentIntentId]);
 
   return { result, loading };
 }

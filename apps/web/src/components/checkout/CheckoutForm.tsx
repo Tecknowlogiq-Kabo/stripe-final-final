@@ -14,6 +14,7 @@ export function CheckoutForm({ amount, currency }: CheckoutFormProps) {
   const [result, setResult] = useState<PaymentFormResult | null>(null);
   const [error, setError] = useState<MappedStripeError | null>(null);
   const [isRecoverable, setIsRecoverable] = useState(false);
+  const [errorCount, setErrorCount] = useState(0);
 
   const handleSuccess = useCallback((paymentResult: PaymentFormResult) => {
     setResult(paymentResult);
@@ -23,6 +24,7 @@ export function CheckoutForm({ amount, currency }: CheckoutFormProps) {
   }, []);
 
   const handleError = useCallback((mapped: MappedStripeError) => {
+    setErrorCount(c => c + 1);
     setError(mapped);
     setIsRecoverable(mapped.recoverability !== 'non-recoverable');
   }, []);
@@ -87,12 +89,18 @@ export function CheckoutForm({ amount, currency }: CheckoutFormProps) {
               )}
             </div>
             {isRecoverable && (
-              <button
-                onClick={handleRetry}
-                className="shrink-0 text-sm font-semibold text-red-700 hover:text-red-900 underline underline-offset-2"
-              >
-                Try again
-              </button>
+              errorCount >= 3 ? (
+                <p className="shrink-0 text-sm font-semibold text-red-700">
+                  Please contact support.
+                </p>
+              ) : (
+                <button
+                  onClick={handleRetry}
+                  className="shrink-0 text-sm font-semibold text-red-700 hover:text-red-900 underline underline-offset-2"
+                >
+                  Try again
+                </button>
+              )
             )}
           </div>
         </div>

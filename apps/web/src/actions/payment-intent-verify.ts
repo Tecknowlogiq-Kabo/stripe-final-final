@@ -1,5 +1,7 @@
 'use server';
 
+import { cookies } from 'next/headers';
+
 const API_URL = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 export interface PaymentIntentVerificationResult {
@@ -16,11 +18,16 @@ export async function verifyPaymentIntent(
   stripePaymentIntentId: string,
 ): Promise<PaymentIntentVerificationResult> {
   try {
+    const jar = cookies();
+    const authToken = jar.get('auth_token')?.value;
     const res = await fetch(
       `${API_URL}/api/v1/payment-intents/stripe/${stripePaymentIntentId}`,
       {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken ? { Cookie: `auth_token=${authToken}` } : {}),
+        },
         cache: 'no-store',
       },
     );
@@ -64,11 +71,7 @@ export async function verifyPaymentIntent(
       };
     }
 
-    if (
-      status === 'requires_payment_method' ||
-      status === 'canceled' ||
-      status === 'payment_failed'
-    ) {
+    if (status === 'requires_payment_method' || status === 'canceled') {
       return {
         status: 'failed',
         message: errorMessage ?? 'Your payment could not be completed.',
