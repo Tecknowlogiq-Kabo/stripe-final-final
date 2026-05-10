@@ -63,6 +63,10 @@ export class StripeService {
     return this.stripe.prices;
   }
 
+  get billingPortal() {
+    return this.stripe.billingPortal;
+  }
+
   get products(): Stripe.ProductsResource {
     return this.stripe.products;
   }

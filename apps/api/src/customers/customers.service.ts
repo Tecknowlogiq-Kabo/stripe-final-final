@@ -238,6 +238,18 @@ export class CustomersService {
     return { clientSecret: session.client_secret };
   }
 
+  async createBillingPortalSession(
+    customerId: string,
+    returnUrl: string,
+  ): Promise<{ url: string }> {
+    const customer = await this.findById(customerId);
+    const session = await this.stripeService.billingPortal.sessions.create({
+      customer: customer.stripeCustomerId,
+      return_url: returnUrl,
+    });
+    return { url: session.url };
+  }
+
   async syncFromStripe(stripeCustomerId: string): Promise<StripeCustomer> {
     const stripeCustomer = await this.stripeService.customers.retrieve(
       stripeCustomerId,

@@ -1,9 +1,28 @@
 'use client';
 
+import { useState } from 'react';
 import { useSubscriptionPlans } from '@/features/subscriptions/subscriptions.hooks';
+import { useMyCustomer } from '@/features/customers/customers.hooks';
+import { createBillingPortalSession } from '@/actions/billing-portal';
 
 export default function SubscriptionsPage() {
   const { data: plans = [], isPending, isError } = useSubscriptionPlans();
+  const { data: myCustomer } = useMyCustomer();
+  const [portalLoading, setPortalLoading] = useState(false);
+
+  const handleManageBilling = async () => {
+    if (!myCustomer) return;
+    setPortalLoading(true);
+    try {
+      const { url } = await createBillingPortalSession({
+        customerId: myCustomer.id,
+        returnUrl: window.location.href,
+      });
+      window.location.href = url;
+    } catch {
+      setPortalLoading(false);
+    }
+  };
 
   if (isPending) {
     return (
@@ -27,9 +46,20 @@ export default function SubscriptionsPage() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Subscription Plans</h1>
-        <p className="text-gray-500 mt-1">Choose the plan that works for you</p>
+      <div className="mb-8 flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Subscription Plans</h1>
+          <p className="text-gray-500 mt-1">Choose the plan that works for you</p>
+        </div>
+        {myCustomer && (
+          <button
+            onClick={handleManageBilling}
+            disabled={portalLoading}
+            className="btn-primary shrink-0"
+          >
+            {portalLoading ? 'Opening…' : 'Manage Billing'}
+          </button>
+        )}
       </div>
 
       {isError && (

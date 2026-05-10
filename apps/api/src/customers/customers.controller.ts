@@ -82,6 +82,18 @@ export class CustomersController {
     return this.customersService.createCustomerSession(id);
   }
 
+  @Post(':id/billing-portal')
+  @HttpCode(HttpStatus.CREATED)
+  @Throttle({ payment: { limit: 10, ttl: 60_000 } })
+  async createBillingPortalSession(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('returnUrl') returnUrl: string,
+    @CurrentUser() user: JwtUser,
+  ) {
+    await this.assertOwnership(id, user.id);
+    return this.customersService.createBillingPortalSession(id, returnUrl ?? '');
+  }
+
   @Post(':id/sync')
   async syncFromStripe(
     @Param('id', ParseUUIDPipe) id: string,
