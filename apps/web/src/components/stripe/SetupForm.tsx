@@ -107,14 +107,11 @@ export function SetupForm({ onSuccess, onError, onRecoverableError }: SetupFormP
       />
 
       {errorState && (
-        <div
-          role="alert"
-          className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm"
-        >
+        <div role="alert" className="alert-error">
           <p className="font-semibold">{errorState.title}</p>
           <p className="mt-1">{errorState.message}</p>
           {errorState.action && (
-            <p className="mt-1 text-red-600 text-xs">{errorState.action}</p>
+            <p className="mt-1 text-xs opacity-80">{errorState.action}</p>
           )}
         </div>
       )}

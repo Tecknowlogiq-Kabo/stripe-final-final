@@ -3,7 +3,9 @@ import type { PaymentMethod } from './payment-methods.types';
 
 class PaymentMethodsService {
   listByCustomer(customerId: string): Promise<PaymentMethod[]> {
-    return apiClient.get(`/payment-methods/customer/${customerId}`);
+    return apiClient
+      .get<{ data: PaymentMethod[] } | PaymentMethod[]>(`/payment-methods/customer/${customerId}`)
+      .then((res) => (Array.isArray(res) ? res : res.data));
   }
 
   attach(paymentMethodId: string, customerId: string): Promise<PaymentMethod> {

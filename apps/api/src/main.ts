@@ -18,9 +18,7 @@ process.on('unhandledRejection', (reason) => {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    // bufferLogs: true lets pino flush queued bootstrap logs once the logger
-    // is fully initialised — prevents losing early-startup log lines.
-    bufferLogs: true,
+    bufferLogs: false,
     // rawBody: true is CRITICAL for Stripe webhook signature verification
     // It makes req.rawBody (Buffer) available before JSON parsing
     rawBody: true,

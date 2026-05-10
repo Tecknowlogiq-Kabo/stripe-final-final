@@ -12,7 +12,9 @@ class SubscriptionsService {
   }
 
   listByCustomer(customerId: string): Promise<Subscription[]> {
-    return apiClient.get(`/subscriptions/customer/${customerId}`);
+    return apiClient
+      .get<{ data: Subscription[] } | Subscription[]>(`/subscriptions/customer/${customerId}`)
+      .then((res) => (Array.isArray(res) ? res : res.data));
   }
 
   create(data: CreateSubscriptionInput): Promise<Subscription> {

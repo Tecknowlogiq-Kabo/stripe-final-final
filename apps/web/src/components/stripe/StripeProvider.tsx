@@ -40,10 +40,10 @@ export function StripeProvider({
 
   if (initError) {
     return (
-      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+      <div className="alert-error text-sm">
         <p className="font-semibold">Session error</p>
         <p className="mt-1">{initError}</p>
-        <p className="mt-1 text-xs">Refresh the page to start a new checkout.</p>
+        <p className="mt-1 text-xs opacity-70">Refresh the page to start a new checkout.</p>
       </div>
     );
   }
@@ -52,24 +52,45 @@ export function StripeProvider({
     clientSecret,
     loader: 'auto',
     appearance: {
-      theme: 'stripe',
+      theme: 'night',
       variables: {
-        colorPrimary: '#4f46e5',
-        colorBackground: '#ffffff',
-        colorText: '#1f2937',
-        colorDanger: '#ef4444',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
+        colorPrimary: '#6366f1',
+        colorBackground: '#18181b',
+        colorText: '#fafafa',
+        colorTextSecondary: '#a1a1aa',
+        colorDanger: '#f87171',
+        fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
         spacingUnit: '4px',
         borderRadius: '8px',
       },
       rules: {
         '.Input': {
+          backgroundColor: '#27272a',
+          border: '1px solid #3f3f46',
+          color: '#fafafa',
           boxShadow: 'none',
-          border: '1px solid #d1d5db',
         },
         '.Input:focus': {
-          border: '1px solid #4f46e5',
-          boxShadow: '0 0 0 3px rgba(79, 70, 229, 0.1)',
+          border: '1px solid #6366f1',
+          boxShadow: '0 0 0 2px rgba(99, 102, 241, 0.2)',
+        },
+        '.Label': {
+          color: '#a1a1aa',
+          fontSize: '13px',
+        },
+        '.Tab': {
+          backgroundColor: '#27272a',
+          border: '1px solid #3f3f46',
+          color: '#a1a1aa',
+        },
+        '.Tab:hover': {
+          backgroundColor: '#3f3f46',
+          color: '#fafafa',
+        },
+        '.Tab--selected': {
+          backgroundColor: '#27272a',
+          border: '1px solid #6366f1',
+          color: '#fafafa',
         },
       },
     },

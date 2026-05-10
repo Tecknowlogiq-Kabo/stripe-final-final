@@ -5,8 +5,6 @@ import { useMyCustomer } from '@/features/customers/customers.hooks';
 import { useCustomerPaymentIntents } from '@/features/payment-intents/payment-intents.hooks';
 import type { PaymentIntent } from '@/features/payment-intents/payment-intents.types';
 
-// ── Display helpers ──────────────────────────────────────────────────────────
-
 function formatAmount(amount: number, currency: string): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -25,51 +23,19 @@ function formatDate(iso: string): string {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const colorMap: Record<string, string> = {
-    succeeded: 'bg-green-100 text-green-700',
-    processing: 'bg-blue-100 text-blue-700',
-    requires_payment_method: 'bg-yellow-100 text-yellow-700',
-    requires_action: 'bg-orange-100 text-orange-700',
-    canceled: 'bg-red-100 text-red-700',
+  const classMap: Record<string, string> = {
+    succeeded: 'badge-green',
+    processing: 'badge-blue',
+    requires_payment_method: 'badge-yellow',
+    requires_action: 'badge-orange',
+    canceled: 'badge-red',
   };
-  const className = colorMap[status] ?? 'bg-gray-100 text-gray-700';
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${className}`}>
+    <span className={classMap[status] ?? 'badge-gray'}>
       {status.replace(/_/g, ' ')}
     </span>
   );
 }
-
-function PaymentItem({ pi }: { pi: PaymentIntent }) {
-  return (
-    <div className="card flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="font-semibold text-gray-900">
-            {formatAmount(pi.amount, pi.currency)}
-          </p>
-          <StatusBadge status={pi.status} />
-        </div>
-        {pi.description && (
-          <p className="text-sm text-gray-500 mt-0.5">{pi.description}</p>
-        )}
-        <p className="text-xs text-gray-400 mt-1">{formatDate(pi.createdAt)}</p>
-      </div>
-      <div className="shrink-0 text-right">
-        {pi.amountReceived != null && pi.amountReceived !== pi.amount && (
-          <p className="text-xs text-gray-500">
-            Received: {formatAmount(pi.amountReceived, pi.currency)}
-          </p>
-        )}
-        {pi.receiptEmail && (
-          <p className="text-xs text-gray-400">{pi.receiptEmail}</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PaymentsPage() {
   const [page, setPage] = useState(1);
@@ -88,10 +54,10 @@ export default function PaymentsPage() {
     return (
       <div>
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Payments</h1>
-          <p className="text-gray-500 mt-1">View your payment history</p>
+          <h1 className="page-title">Payments</h1>
+          <p className="page-subtitle">Payment intent history</p>
         </div>
-        <div className="card text-center py-8 text-gray-500">
+        <div className="card text-center py-10 text-zinc-500 text-sm">
           Payment history is customer-specific. Complete a checkout to see payments.
         </div>
       </div>
@@ -100,63 +66,97 @@ export default function PaymentsPage() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Payments</h1>
-        <p className="text-gray-500 mt-1">View your payment history</p>
+      <div className="mb-8 flex items-start justify-between">
+        <div>
+          <h1 className="page-title">Payments</h1>
+          <p className="page-subtitle">Payment intent history</p>
+        </div>
+        <a href="/checkout" className="btn-primary">New Payment</a>
       </div>
 
       {isError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
+        <div className="alert-error mb-6">
           Failed to load payments. Make sure the API is running.
         </div>
       )}
 
-      {isPending || isFetching ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="card animate-pulse flex items-center gap-4">
-              <div className="flex-1">
-                <div className="h-4 bg-gray-200 rounded w-1/4 mb-2" />
-                <div className="h-3 bg-gray-100 rounded w-1/3" />
+      <div className="card p-0 overflow-hidden">
+        {isPending || isFetching ? (
+          <div className="p-6 space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="animate-pulse flex items-center gap-4 py-2">
+                <div className="h-4 bg-zinc-800 rounded w-20" />
+                <div className="h-4 bg-zinc-800 rounded w-16" />
+                <div className="h-3 bg-zinc-800/60 rounded w-32 ml-auto" />
               </div>
-            </div>
-          ))}
-        </div>
-      ) : !response || response.data.length === 0 ? (
-        <div className="card text-center py-8 text-gray-500">
-          No payments yet. Complete a checkout to see your payment history.
-        </div>
-      ) : (
-        <>
-          <div className="space-y-3">
-            {response.data.map((pi) => (
-              <PaymentItem key={pi.id} pi={pi} />
             ))}
           </div>
+        ) : !response || response.data.length === 0 ? (
+          <div className="text-center py-12 text-zinc-500 text-sm">
+            No payments yet. <a href="/checkout" className="text-indigo-400 hover:text-indigo-300">Make a payment</a> to see history.
+          </div>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Description</th>
+                <th>Receipt</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {response.data.map((pi: PaymentIntent) => (
+                <tr key={pi.id}>
+                  <td>
+                    <span className="mono font-medium text-zinc-100">
+                      {formatAmount(pi.amount, pi.currency)}
+                    </span>
+                    {pi.amountReceived != null && pi.amountReceived !== pi.amount && (
+                      <span className="block text-xs text-zinc-500 mono">
+                        rcv {formatAmount(pi.amountReceived, pi.currency)}
+                      </span>
+                    )}
+                  </td>
+                  <td><StatusBadge status={pi.status} /></td>
+                  <td>
+                    <span className="text-zinc-400 text-xs">{pi.description ?? '—'}</span>
+                  </td>
+                  <td>
+                    <span className="text-zinc-500 text-xs">{pi.receiptEmail ?? '—'}</span>
+                  </td>
+                  <td>
+                    <span className="mono text-xs text-zinc-500">{formatDate(pi.createdAt)}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-6">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-                className="text-sm font-medium text-primary-600 hover:text-primary-800 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Previous
-              </button>
-              <span className="text-sm text-gray-500">
-                Page {page} of {totalPages}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-                className="text-sm font-medium text-primary-600 hover:text-primary-800 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Next
-              </button>
-            </div>
-          )}
-        </>
-      )}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-zinc-800">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="btn-ghost text-xs disabled:opacity-30"
+            >
+              ← Previous
+            </button>
+            <span className="text-xs text-zinc-500 mono">
+              {page} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="btn-ghost text-xs disabled:opacity-30"
+            >
+              Next →
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

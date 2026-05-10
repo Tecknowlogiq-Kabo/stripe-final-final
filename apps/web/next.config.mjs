@@ -1,9 +1,11 @@
+const isDev = process.env.NODE_ENV !== 'production';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
   experimental: {
     serverActions: {
-      allowedOrigins: ['localhost:3000'],
+      allowedOrigins: ['localhost:3000', 'localhost:3002'],
     },
   },
   async headers() {
@@ -24,9 +26,9 @@ const nextConfig = {
             // unsafe-inline required by Next.js App Router style injection + Stripe.js
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' https://js.stripe.com",
+              `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''} https://js.stripe.com`,
               "frame-src https://js.stripe.com https://hooks.stripe.com",
-              "connect-src 'self' https://api.stripe.com",
+              `connect-src 'self' https://api.stripe.com${isDev ? ' http://localhost:3001 ws://localhost:3002' : ''}`,
               "img-src 'self' data:",
               "style-src 'self' 'unsafe-inline'",
               "font-src 'self' data:",

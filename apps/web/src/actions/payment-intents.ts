@@ -7,7 +7,7 @@ const API_URL = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http:
 
 function getAuthHeader(): Record<string, string> {
   const token = cookies().get('auth_token')?.value;
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return token ? { Cookie: `auth_token=${token}` } : {};
 }
 
 export interface CreatePaymentIntentInput {

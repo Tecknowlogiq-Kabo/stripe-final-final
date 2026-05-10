@@ -32,7 +32,6 @@ import { User } from '../entities/user.entity';
           SubscriptionPlan,
           User,
         ],
-        migrations: [__dirname + '/migrations/*{.ts,.js}'],
         synchronize: false, // NEVER true in production — use migrations only
         migrationsRun: false, // run manually via CLI or on startup in dev
         logging: config.get<string>('NODE_ENV') === 'development',

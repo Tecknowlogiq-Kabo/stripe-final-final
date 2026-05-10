@@ -17,7 +17,7 @@ export const validationSchema = Joi.object({
   STRIPE_WEBHOOK_SECRET: Joi.string()
     .pattern(/^whsec_/)
     .required(),
-  STRIPE_API_VERSION: Joi.string().default('2025-04-30'),
+  STRIPE_API_VERSION: Joi.string().default('2026-03-25.dahlia'),
   LOG_LEVEL: Joi.string()
     .valid('error', 'warn', 'info', 'debug', 'verbose')
     .default('info'),

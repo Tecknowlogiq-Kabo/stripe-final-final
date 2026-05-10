@@ -43,20 +43,20 @@ export function CheckoutForm({ amount, currency }: CheckoutFormProps) {
     const isProcessing = result?.status === 'processing';
     return (
       <div className="text-center py-8">
-        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-green-500/20">
+          <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">
-          {isProcessing ? 'Payment Processing' : 'Payment Successful!'}
+        <h2 className="text-xl font-semibold text-zinc-100 mb-2">
+          {isProcessing ? 'Payment Processing' : 'Payment Successful'}
         </h2>
-        <p className="text-gray-500 mb-6">
+        <p className="text-zinc-500 text-sm mb-6">
           {isProcessing
             ? 'Your payment is being processed. You will receive confirmation shortly.'
-            : 'Your payment has been processed.'}
+            : 'Your payment has been processed successfully.'}
         </p>
-        <a href="/" className="btn-primary inline-block w-auto px-8">
+        <a href="/" className="btn-primary inline-flex w-auto px-8">
           Back to Home
         </a>
       </div>
@@ -70,33 +70,30 @@ export function CheckoutForm({ amount, currency }: CheckoutFormProps) {
 
   return (
     <div>
-      <div className="mb-6 p-4 bg-gray-50 rounded-lg flex justify-between items-center">
-        <span className="text-gray-600 font-medium">Amount due</span>
-        <span className="text-2xl font-bold text-gray-900">{formattedAmount}</span>
+      <div className="mb-6 p-4 bg-zinc-800/50 rounded-lg border border-zinc-700/50 flex justify-between items-center">
+        <span className="text-sm font-medium text-zinc-400">Amount due</span>
+        <span className="mono text-xl font-semibold text-zinc-100">{formattedAmount}</span>
       </div>
 
       {error && (
-        <div
-          role="alert"
-          className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg"
-        >
+        <div role="alert" className="alert-error mb-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="font-semibold text-sm">{error.title}</p>
-              <p className="text-sm mt-1">{error.message}</p>
+              <p className="font-semibold">{error.title}</p>
+              <p className="mt-1">{error.message}</p>
               {error.action && (
-                <p className="text-xs mt-1 text-red-600">{error.action}</p>
+                <p className="text-xs mt-1 opacity-80">{error.action}</p>
               )}
             </div>
             {isRecoverable && (
               errorCount >= 3 ? (
-                <p className="shrink-0 text-sm font-semibold text-red-700">
+                <p className="shrink-0 text-sm font-semibold">
                   Please contact support.
                 </p>
               ) : (
                 <button
                   onClick={handleRetry}
-                  className="shrink-0 text-sm font-semibold text-red-700 hover:text-red-900 underline underline-offset-2"
+                  className="shrink-0 text-sm font-semibold underline underline-offset-2 hover:opacity-80"
                 >
                   Try again
                 </button>
