@@ -1,11 +1,11 @@
 'use client';
 
-import { useGetPlansQuery } from '@/store/apis/subscriptionsApi';
+import { useSubscriptionPlans } from '@/features/subscriptions/subscriptions.hooks';
 
 export default function SubscriptionsPage() {
-  const { data: plans = [], isLoading, isError } = useGetPlansQuery();
+  const { data: plans = [], isPending, isError } = useSubscriptionPlans();
 
-  if (isLoading) {
+  if (isPending) {
     return (
       <div>
         <div className="mb-8">

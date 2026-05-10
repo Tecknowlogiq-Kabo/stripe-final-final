@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { DataSource } from 'typeorm';
 import { randomUUID } from 'crypto';
 import Stripe from 'stripe';
@@ -14,6 +16,7 @@ import { PaymentMethodHandler } from './handlers/payment-method.handler';
 import { CustomerHandler } from './handlers/customer.handler';
 import { MandateHandler } from './handlers/mandate.handler';
 import { WEBHOOK_SELECT } from '../database/query-constants';
+import { WEBHOOK_QUEUE } from './webhook-queue.constants';
 
 type WebhookHandler = { handle: (event: Stripe.Event) => Promise<void> };
 
@@ -25,6 +28,8 @@ export class WebhooksService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    @InjectQueue(WEBHOOK_QUEUE)
+    private readonly webhookQueue: Queue,
     private readonly paymentIntentHandler: PaymentIntentHandler,
     private readonly setupIntentHandler: SetupIntentHandler,
     private readonly subscriptionHandler: SubscriptionHandler,
@@ -63,6 +68,11 @@ export class WebhooksService {
     ]);
   }
 
+  /**
+   * Called by the webhook controller on every incoming Stripe event.
+   * Stores/updates the record in the DB then hands off to the async queue.
+   * Returns immediately so Stripe receives a 200 before processing begins.
+   */
   async processEvent(event: Stripe.Event): Promise<void> {
     const [existing] = await this.dataSource.query<StripeWebhookEvent[]>(
       `SELECT ${WEBHOOK_SELECT} FROM STRIPE_WEBHOOK_EVENTS WHERE STRIPE_EVENT_ID = :1 AND ROWNUM = 1`,
@@ -94,6 +104,33 @@ export class WebhooksService {
       );
     }
 
+    await this.webhookQueue.add(
+      WEBHOOK_QUEUE,
+      { eventId: event.id, recordId },
+      { attempts: 3, backoff: { type: 'exponential', delay: 5_000 } },
+    );
+
+    this.logger.log({
+      message: 'Webhook event enqueued',
+      eventId: event.id,
+      eventType: event.type,
+      recordId,
+    });
+  }
+
+  /**
+   * Called by WebhookProcessor for each dequeued job.
+   * Reads the payload from the DB, dispatches to the appropriate handler,
+   * then marks the record as processed or failed.
+   */
+  async execute(eventId: string, recordId: string): Promise<void> {
+    const [row] = await this.dataSource.query<{ payload: string }[]>(
+      `SELECT PAYLOAD AS "payload" FROM STRIPE_WEBHOOK_EVENTS WHERE ID = :1`,
+      [recordId],
+    );
+
+    const event = JSON.parse(row.payload) as Stripe.Event;
+
     try {
       await this.dispatch(event);
 
@@ -104,7 +141,7 @@ export class WebhooksService {
 
       this.logger.log({
         message: 'Webhook event processed successfully',
-        eventId: event.id,
+        eventId,
         eventType: event.type,
       });
     } catch (error) {
@@ -118,13 +155,12 @@ export class WebhooksService {
 
       this.logger.error({
         message: 'Webhook event processing failed',
-        eventId: event.id,
+        eventId,
         eventType: event.type,
-        retryCount: (existing?.retryCount ?? 0) + 1,
         error: errorMessage,
       });
 
-      throw error;
+      throw error; // BullMQ will retry based on job options
     }
   }
 

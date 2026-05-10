@@ -1,11 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  useGetCustomerPaymentIntentsQuery,
-  type PaymentIntent,
-} from '@/store/apis/paymentIntentsApi';
-import { useGetMyCustomerQuery } from '@/store/apis/customersApi';
+import { useMyCustomer } from '@/features/customers/customers.hooks';
+import { useCustomerPaymentIntents } from '@/features/payment-intents/payment-intents.hooks';
+import type { PaymentIntent } from '@/features/payment-intents/payment-intents.types';
 
 // ── Display helpers ──────────────────────────────────────────────────────────
 
@@ -76,18 +74,12 @@ function PaymentItem({ pi }: { pi: PaymentIntent }) {
 export default function PaymentsPage() {
   const [page, setPage] = useState(1);
   const limit = 10;
-  const { data: myCustomer } = useGetMyCustomerQuery();
-  const customerId = myCustomer?.id ?? '';
-  const skip = !customerId;
 
-  const {
-    data: response,
-    isLoading,
-    isError,
-    isFetching,
-  } = useGetCustomerPaymentIntentsQuery(
+  const { data: myCustomer } = useMyCustomer();
+  const customerId = myCustomer?.id ?? '';
+
+  const { data: response, isPending, isError, isFetching } = useCustomerPaymentIntents(
     { customerId, page, limit },
-    { skip },
   );
 
   const totalPages = response ? Math.ceil(response.total / response.limit) : 0;
@@ -119,7 +111,7 @@ export default function PaymentsPage() {
         </div>
       )}
 
-      {isLoading || isFetching ? (
+      {isPending || isFetching ? (
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="card animate-pulse flex items-center gap-4">

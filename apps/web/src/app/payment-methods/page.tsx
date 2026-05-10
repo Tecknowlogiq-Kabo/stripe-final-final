@@ -5,13 +5,13 @@ import Link from 'next/link';
 import { StripeProvider } from '@/components/stripe/StripeProvider';
 import { SetupForm } from '@/components/stripe/SetupForm';
 import type { MappedStripeError } from '@/lib/stripe-errors';
+import { useMyCustomer } from '@/features/customers/customers.hooks';
 import {
-  useGetCustomerPaymentMethodsQuery,
-  useDetachPaymentMethodMutation,
-  useSetDefaultPaymentMethodMutation,
-  type PaymentMethod,
-} from '@/store/apis/paymentMethodsApi';
-import { useGetMyCustomerQuery } from '@/store/apis/customersApi';
+  useCustomerPaymentMethods,
+  useDetachPaymentMethod,
+  useSetDefaultPaymentMethod,
+} from '@/features/payment-methods/payment-methods.hooks';
+import type { PaymentMethod } from '@/features/payment-methods/payment-methods.types';
 import { createSetupIntent } from '@/actions/setup-intents';
 
 // ── Display helpers ──────────────────────────────────────────────────────────
@@ -114,19 +114,18 @@ export default function PaymentMethodsPage() {
   const [addingNew, setAddingNew] = useState(false);
   const [isRecoverable, setIsRecoverable] = useState(false);
 
-  const { data: myCustomer } = useGetMyCustomerQuery();
+  const { data: myCustomer } = useMyCustomer();
   const customerId = myCustomer?.id ?? '';
-  const skip = !customerId;
 
   const {
     data: paymentMethods = [],
-    isLoading,
+    isPending,
     isFetching,
     refetch,
-  } = useGetCustomerPaymentMethodsQuery(customerId, { skip });
+  } = useCustomerPaymentMethods(customerId);
 
-  const [detach, { isLoading: isDetaching }] = useDetachPaymentMethodMutation();
-  const [setDefault, { isLoading: isSettingDefault }] = useSetDefaultPaymentMethodMutation();
+  const { mutate: detach, isPending: isDetaching } = useDetachPaymentMethod();
+  const { mutate: setDefault, isPending: isSettingDefault } = useSetDefaultPaymentMethod();
 
   const handleAddNew = async () => {
     if (!customerId) return;
@@ -252,7 +251,7 @@ export default function PaymentMethodsPage() {
         </div>
       )}
 
-      {isLoading || isFetching ? (
+      {isPending || isFetching ? (
         <div className="space-y-3">
           {[1, 2].map((i) => (
             <div key={i} className="card animate-pulse flex items-center gap-4">

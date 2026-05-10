@@ -1,7 +1,7 @@
 import { LoggerModule } from 'nestjs-pino';
-import { trace, context } from '@opentelemetry/api';
+import { trace } from '@opentelemetry/api';
 import { v4 as uuidv4 } from 'uuid';
-import type { Request } from 'express';
+import type { IncomingMessage } from 'http';
 
 export const PinoLoggerModule = LoggerModule.forRootAsync({
   useFactory: () => ({
@@ -11,7 +11,7 @@ export const PinoLoggerModule = LoggerModule.forRootAsync({
       // Resolve request ID from incoming header or generate a new UUID.
       // CorrelationIdMiddleware runs first and sets req.id, so pino-http
       // picks it up via genReqId and binds it to every log line in the request.
-      genReqId: (req: Request & { id?: string }) => req.id ?? uuidv4(),
+      genReqId: (req: IncomingMessage) => (req.id as string | undefined) ?? uuidv4(),
       // Inject active OpenTelemetry trace/span IDs into every log record
       mixin: () => {
         const span = trace.getActiveSpan();
@@ -51,7 +51,7 @@ export const PinoLoggerModule = LoggerModule.forRootAsync({
       level: process.env.LOG_LEVEL ?? 'info',
       // Serialize request and response with concise fields
       serializers: {
-        req(req: Request & { id?: string }) {
+        req(req: IncomingMessage) {
           return {
             id: req.id,
             method: req.method,

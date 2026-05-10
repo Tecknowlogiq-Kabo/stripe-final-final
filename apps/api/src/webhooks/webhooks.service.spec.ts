@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { getQueueToken } from '@nestjs/bullmq';
 import { DataSource } from 'typeorm';
 import { WebhooksService } from './webhooks.service';
+import { WEBHOOK_QUEUE } from './webhook-queue.constants';
 import { PaymentIntentHandler } from './handlers/payment-intent.handler';
 import { SetupIntentHandler } from './handlers/setup-intent.handler';
 import { SubscriptionHandler } from './handlers/subscription.handler';
@@ -26,16 +28,19 @@ function makeEvent(overrides: Partial<{ id: string; type: string }> = {}) {
 describe('WebhooksService', () => {
   let service: WebhooksService;
   let queryMock: jest.Mock;
+  let queueAddMock: jest.Mock;
   let paymentIntentHandler: { handle: jest.Mock };
 
   beforeEach(async () => {
     queryMock = jest.fn();
+    queueAddMock = jest.fn().mockResolvedValue({ id: 'job-1' });
     paymentIntentHandler = { handle: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WebhooksService,
         { provide: DataSource, useValue: { query: queryMock } },
+        { provide: getQueueToken(WEBHOOK_QUEUE), useValue: { add: queueAddMock } },
         { provide: PaymentIntentHandler, useValue: paymentIntentHandler },
         { provide: SetupIntentHandler, useValue: { handle: jest.fn() } },
         { provide: SubscriptionHandler, useValue: { handle: jest.fn() } },
@@ -50,19 +55,19 @@ describe('WebhooksService', () => {
   });
 
   describe('processEvent', () => {
-    it('skips already processed events', async () => {
+    it('skips already processed events without enqueueing', async () => {
       queryMock.mockResolvedValueOnce([{ id: 'rec-1', status: 'processed', retryCount: 0 }]);
 
       await service.processEvent(makeEvent());
 
       expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(queueAddMock).not.toHaveBeenCalled();
     });
 
-    it('inserts new event record for unknown event id', async () => {
+    it('inserts new event record and enqueues job for unknown event id', async () => {
       queryMock
-        .mockResolvedValueOnce([]) // No existing
-        .mockResolvedValueOnce({}) // INSERT
-        .mockResolvedValueOnce([]); // UPDATE to processed
+        .mockResolvedValueOnce([])  // SELECT: no existing
+        .mockResolvedValueOnce({}); // INSERT
 
       await service.processEvent(makeEvent());
 
@@ -71,57 +76,76 @@ describe('WebhooksService', () => {
       expect(insertCall[1][1]).toBe('evt_test123');
       expect(insertCall[1][2]).toBe('payment_intent.succeeded');
       expect(insertCall[1][4]).toBe('pending');
+
+      expect(queueAddMock).toHaveBeenCalledWith(
+        WEBHOOK_QUEUE,
+        expect.objectContaining({ eventId: 'evt_test123' }),
+        expect.objectContaining({ attempts: 3 }),
+      );
     });
 
-    it('updates existing failed event for retry', async () => {
+    it('updates existing failed event record and enqueues retry', async () => {
       queryMock
         .mockResolvedValueOnce([{ id: 'rec-1', status: 'failed', retryCount: 2 }])
-        .mockResolvedValueOnce({}) // UPDATE
-        .mockResolvedValueOnce([]); // UPDATE to processed
+        .mockResolvedValueOnce({}); // UPDATE
 
       await service.processEvent(makeEvent());
 
       const updateCall = queryMock.mock.calls[1];
       expect(updateCall[0]).toContain('UPDATE STRIPE_WEBHOOK_EVENTS');
-      expect(updateCall[1][3]).toBe(0);
+      expect(updateCall[1][3]).toBe(0); // reset retry count
+
+      expect(queueAddMock).toHaveBeenCalledWith(
+        WEBHOOK_QUEUE,
+        expect.objectContaining({ eventId: 'evt_test123', recordId: 'rec-1' }),
+        expect.anything(),
+      );
     });
+  });
 
-    it('dispatches to correct handler based on event type', async () => {
+  describe('execute', () => {
+    const recordId = 'rec-abc';
+    const eventId = 'evt_test123';
+    const event = makeEvent({ type: 'payment_intent.succeeded' });
+
+    it('dispatches to the correct handler and marks event processed', async () => {
       queryMock
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce({})
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([{ payload: JSON.stringify(event) }]) // SELECT payload
+        .mockResolvedValueOnce({}); // UPDATE processed
 
-      await service.processEvent(makeEvent({ type: 'payment_intent.succeeded' }));
+      await service.execute(eventId, recordId);
 
       expect(paymentIntentHandler.handle).toHaveBeenCalledTimes(1);
+
+      const processedUpdate = queryMock.mock.calls[1];
+      expect(processedUpdate[1][0]).toBe('processed');
+      expect(processedUpdate[1][1]).toBe(recordId);
     });
 
-    it('logs warning for unhandled event types and still marks processed', async () => {
-      queryMock
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce({})
-        .mockResolvedValueOnce([]);
-
-      await service.processEvent(makeEvent({ type: 'charge.updated' }));
-
-      const finalUpdate = queryMock.mock.calls[queryMock.mock.calls.length - 1];
-      expect(finalUpdate[1][0]).toBe('processed');
-    });
-
-    it('marks event as failed with error message when handler throws', async () => {
+    it('marks event failed and rethrows when handler throws', async () => {
       paymentIntentHandler.handle.mockRejectedValue(new Error('Boom'));
       queryMock
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce({});
+        .mockResolvedValueOnce([{ payload: JSON.stringify(event) }]) // SELECT payload
+        .mockResolvedValueOnce({}); // UPDATE failed
 
-      await expect(
-        service.processEvent(makeEvent({ type: 'payment_intent.succeeded' })),
-      ).rejects.toThrow('Boom');
+      await expect(service.execute(eventId, recordId)).rejects.toThrow('Boom');
 
-      const failedUpdate = queryMock.mock.calls[queryMock.mock.calls.length - 1];
+      const failedUpdate = queryMock.mock.calls[1];
       expect(failedUpdate[1][0]).toBe('failed');
       expect(failedUpdate[1][1]).toBe('Boom');
+      expect(failedUpdate[1][2]).toBe(recordId);
+    });
+
+    it('logs warning and marks processed for unhandled event types', async () => {
+      const unknownEvent = makeEvent({ type: 'charge.updated' });
+      queryMock
+        .mockResolvedValueOnce([{ payload: JSON.stringify(unknownEvent) }])
+        .mockResolvedValueOnce({});
+
+      await service.execute(eventId, recordId);
+
+      const finalUpdate = queryMock.mock.calls[1];
+      expect(finalUpdate[1][0]).toBe('processed');
     });
   });
 });

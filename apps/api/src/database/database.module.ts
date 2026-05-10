@@ -38,8 +38,8 @@ import { User } from '../entities/user.entity';
         logging: config.get<string>('NODE_ENV') === 'development',
         logger: 'advanced-console',
         extra: {
-          poolMax: 10,
-          poolMin: 2,
+          poolMax: 20,
+          poolMin: 5,
           poolTimeout: 30,
           poolPingEnabled: true,
           poolPingInterval: 60,

@@ -2,14 +2,11 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useDispatch } from 'react-redux';
-import { setCredentials } from '@/store/slices/authSlice';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 export default function LoginPage() {
   const router = useRouter();
-  const dispatch = useDispatch();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -32,8 +29,6 @@ export default function LoginPage() {
         throw new Error(err.message ?? 'Login failed');
       }
 
-      const result = await response.json();
-      dispatch(setCredentials({ user: result.user }));
       router.push('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');

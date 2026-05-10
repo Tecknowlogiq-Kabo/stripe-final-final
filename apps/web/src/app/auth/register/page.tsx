@@ -2,14 +2,11 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useDispatch } from 'react-redux';
-import { setCredentials } from '@/store/slices/authSlice';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 export default function RegisterPage() {
   const router = useRouter();
-  const dispatch = useDispatch();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -32,8 +29,6 @@ export default function RegisterPage() {
         throw new Error(err.message ?? 'Registration failed');
       }
 
-      const result = await response.json();
-      dispatch(setCredentials({ user: result.user }));
       router.push('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
