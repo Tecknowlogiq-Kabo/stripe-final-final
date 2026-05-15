@@ -20,8 +20,24 @@ import { CreatePaymentIntentDto } from './dto/create-payment-intent.dto';
 import { UpdatePaymentIntentDto } from './dto/update-payment-intent.dto';
 import { ListPaymentIntentsDto } from './dto/list-payment-intents.dto';
 import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator';
-import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser, JwtUser } from '../auth/decorators/current-user.decorator';
+import { StripePaymentIntent } from '../entities/stripe-payment-intent.entity';
+
+function toPublicPaymentIntent(pi: StripePaymentIntent) {
+  return {
+    id: pi.id,
+    stripePaymentIntentId: pi.stripePaymentIntentId,
+    amount: pi.amount,
+    currency: pi.currency,
+    status: pi.status,
+    description: pi.description ?? undefined,
+    amountReceived: pi.amountReceived ?? undefined,
+    receiptEmail: pi.receiptEmail ?? undefined,
+    statementDescriptor: pi.statementDescriptor ?? undefined,
+    createdAt: pi.createdAt,
+    updatedAt: pi.updatedAt,
+  };
+}
 
 @Controller('payment-intents')
 export class PaymentIntentsController {
@@ -49,15 +65,22 @@ export class PaymentIntentsController {
   ) {
     const pi = await this.service.findById(id);
     await this.assertCustomerOwnership(pi.customerId, user.id);
-    return pi;
+    return toPublicPaymentIntent(pi);
   }
 
   @Get('stripe/:stripeId')
-  @Public()
-  async findByStripeId(@Param('stripeId') stripeId: string) {
+  async findByStripeId(
+    @Param('stripeId') stripeId: string,
+    @CurrentUser() user: JwtUser,
+  ) {
     const pi = await this.service.findByStripeId(stripeId);
     if (!pi) throw new NotFoundException(`PaymentIntent ${stripeId} not found`);
-    return pi;
+    await this.assertCustomerOwnership(pi.customerId, user.id);
+    return {
+      id: pi.id,
+      status: pi.status,
+      errorMessage: pi.errorMessage ?? undefined,
+    };
   }
 
   @Get('customer/:customerId')
@@ -67,7 +90,11 @@ export class PaymentIntentsController {
     @CurrentUser() user: JwtUser,
   ) {
     await this.assertCustomerOwnership(customerId, user.id);
-    return this.service.findByCustomer(customerId, dto);
+    const response = await this.service.findByCustomer(customerId, dto);
+    return {
+      ...response,
+      data: response.data.map(toPublicPaymentIntent),
+    };
   }
 
   @Patch(':id')
@@ -79,7 +106,7 @@ export class PaymentIntentsController {
   ) {
     const pi = await this.service.findById(id);
     await this.assertCustomerOwnership(pi.customerId, user.id);
-    return this.service.update(id, dto, idempotencyKey);
+    return toPublicPaymentIntent(await this.service.update(id, dto, idempotencyKey));
   }
 
   @Delete(':id')
@@ -90,7 +117,7 @@ export class PaymentIntentsController {
   ) {
     const pi = await this.service.findById(id);
     await this.assertCustomerOwnership(pi.customerId, user.id);
-    return this.service.cancel(id);
+    return toPublicPaymentIntent(await this.service.cancel(id));
   }
 
   private async assertCustomerOwnership(customerId: string, userId: string): Promise<void> {

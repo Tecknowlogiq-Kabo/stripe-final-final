@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useMyCustomer } from '@/features/customers/customers.hooks';
 import { useCustomerPaymentIntents } from '@/features/payment-intents/payment-intents.hooks';
 import type { PaymentIntent } from '@/features/payment-intents/payment-intents.types';
@@ -44,7 +45,7 @@ export default function PaymentsPage() {
   const { data: myCustomer } = useMyCustomer();
   const customerId = myCustomer?.id ?? '';
 
-  const { data: response, isPending, isError, isFetching } = useCustomerPaymentIntents(
+  const { data: response, isPending, isError, isFetching, refetch } = useCustomerPaymentIntents(
     { customerId, page, limit },
   );
 
@@ -55,10 +56,18 @@ export default function PaymentsPage() {
       <div>
         <div className="mb-8">
           <h1 className="page-title">Payments</h1>
-          <p className="page-subtitle">Payment intent history</p>
+          <p className="page-subtitle">Customer-owned payment intent history</p>
         </div>
         <div className="card text-center py-10 text-zinc-500 text-sm">
-          Payment history is customer-specific. Complete a checkout to see payments.
+          <p>Payment history appears after you complete a checkout and create a customer profile.</p>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Link href="/checkout" className="btn-primary">
+              Make a payment
+            </Link>
+            <Link href="/" className="btn-ghost border border-zinc-700">
+              Go to overview
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -69,14 +78,25 @@ export default function PaymentsPage() {
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="page-title">Payments</h1>
-          <p className="page-subtitle">Payment intent history</p>
+          <p className="page-subtitle">Customer-owned payment intent history</p>
         </div>
-        <a href="/checkout" className="btn-primary">New Payment</a>
+        <Link href="/checkout" className="btn-primary">New Payment</Link>
       </div>
 
       {isError && (
         <div className="alert-error mb-6">
-          Failed to load payments. Make sure the API is running.
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-semibold">Failed to load payments.</p>
+              <p className="mt-1">Make sure the API is running and your session is still valid.</p>
+            </div>
+            <button
+              onClick={() => void refetch()}
+              className="shrink-0 text-sm font-semibold underline underline-offset-2 hover:opacity-80"
+            >
+              Check again
+            </button>
+          </div>
         </div>
       )}
 
@@ -93,7 +113,15 @@ export default function PaymentsPage() {
           </div>
         ) : !response || response.data.length === 0 ? (
           <div className="text-center py-12 text-zinc-500 text-sm">
-            No payments yet. <a href="/checkout" className="text-indigo-400 hover:text-indigo-300">Make a payment</a> to see history.
+            No payments yet. Make a payment to see history and status tracking here.
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <Link href="/checkout" className="btn-primary">
+                Make a payment
+              </Link>
+              <Link href="/" className="btn-ghost border border-zinc-700">
+                Go to overview
+              </Link>
+            </div>
           </div>
         ) : (
           <table className="data-table">

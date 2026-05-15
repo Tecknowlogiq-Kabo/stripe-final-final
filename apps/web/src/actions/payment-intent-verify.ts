@@ -10,12 +10,43 @@ export interface PaymentIntentVerificationResult {
   paymentIntentId?: string;
 }
 
+function buildRedirectFallback(
+  stripePaymentIntentId: string,
+  redirectStatus: string | null | undefined,
+): PaymentIntentVerificationResult {
+  if (redirectStatus === 'succeeded') {
+    return {
+      status: 'succeeded',
+      message:
+        'Stripe returned a successful payment, but we could not refresh your session after the redirect. Check Payment History for the saved record.',
+      paymentIntentId: stripePaymentIntentId,
+    };
+  }
+
+  if (redirectStatus === 'processing') {
+    return {
+      status: 'processing',
+      message:
+        'Stripe returned a processing payment, but we could not refresh your session after the redirect. Check Payment History for the latest status.',
+      paymentIntentId: stripePaymentIntentId,
+    };
+  }
+
+  return {
+    status: 'unknown',
+    message:
+      'We could not verify this payment because your session was not available after the Stripe redirect. Check Payment History or your email for confirmation.',
+    paymentIntentId: stripePaymentIntentId,
+  };
+}
+
 /**
  * Verifies a PaymentIntent status server-side after a redirect.
  * This is the authoritative check — do not trust client-side redirect_status alone.
  */
 export async function verifyPaymentIntent(
   stripePaymentIntentId: string,
+  redirectStatus?: string | null,
 ): Promise<PaymentIntentVerificationResult> {
   try {
     const jar = cookies();
@@ -33,6 +64,10 @@ export async function verifyPaymentIntent(
     );
 
     if (!res.ok) {
+      if (res.status === 401) {
+        return buildRedirectFallback(stripePaymentIntentId, redirectStatus);
+      }
+
       return {
         status: 'unknown',
         message: 'Unable to verify payment status. Please check your email for confirmation.',

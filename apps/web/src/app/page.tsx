@@ -1,3 +1,5 @@
+import { PaymentHistoryPreview } from '@/components/payments/PaymentHistoryPreview';
+
 export default function HomePage() {
   const modules = [
     {
@@ -89,6 +91,13 @@ export default function HomePage() {
           <a href="/payment-methods" className="btn-ghost border border-zinc-700">Add Payment Method</a>
           <a href="/subscriptions" className="btn-ghost border border-zinc-700">View Plans</a>
         </div>
+      </div>
+
+      <div className="mt-10">
+        <PaymentHistoryPreview
+          title="Recent payments"
+          description="A quick glance at the latest payment activity tied to your account."
+        />
       </div>
     </div>
   );
