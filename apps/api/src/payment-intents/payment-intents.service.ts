@@ -44,19 +44,26 @@ export class PaymentIntentsService {
       };
     }
 
-    const customer = await this.customersService.findById(dto.customerId);
+    let stripeCustomerId: string | undefined;
+    let internalCustomerId: string | undefined;
+
+    if (dto.customerId) {
+      const customer = await this.customersService.findById(dto.customerId);
+      stripeCustomerId = customer.stripeCustomerId;
+      internalCustomerId = customer.id;
+    }
 
     const stripePI = await this.stripeService.paymentIntents.create(
       {
         amount: dto.amount,
         currency: dto.currency.toLowerCase(),
-        customer: customer.stripeCustomerId,
+        customer: stripeCustomerId,
         payment_method: dto.paymentMethodId,
         setup_future_usage: dto.setupFutureUsage,
         receipt_email: dto.receiptEmail,
         statement_descriptor: dto.statementDescriptor,
         automatic_payment_methods: { enabled: true },
-        metadata: { ...dto.metadata, internal_customer_id: customer.id },
+        metadata: { ...dto.metadata, ...(internalCustomerId ? { internal_customer_id: internalCustomerId } : {}) },
         description: dto.description,
       },
       { idempotencyKey },
@@ -67,7 +74,7 @@ export class PaymentIntentsService {
       stripePaymentIntentId: stripePI.id,
       amount: stripePI.amount,
       currency: stripePI.currency,
-      customerId: customer.id,
+      customerId: internalCustomerId ?? 'guest',
     });
 
     const clientSecret = stripePI.client_secret;
@@ -86,7 +93,7 @@ export class PaymentIntentsService {
         stripePI.currency,
         stripePI.status,
         clientSecret,
-        customer.id,
+        internalCustomerId ?? null,
         dto.paymentMethodId ?? null,
         idempotencyKey,
         dto.metadata ? JSON.stringify(dto.metadata) : null,

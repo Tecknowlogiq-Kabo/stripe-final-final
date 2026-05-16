@@ -54,7 +54,9 @@ export class PaymentIntentsController {
     @IdempotencyKey() idempotencyKey: string,
     @CurrentUser() user: JwtUser,
   ) {
-    await this.assertCustomerOwnership(dto.customerId, user.id);
+    if (dto.customerId) {
+      await this.assertCustomerOwnership(dto.customerId, user.id);
+    }
     return this.service.create(dto, idempotencyKey);
   }
 

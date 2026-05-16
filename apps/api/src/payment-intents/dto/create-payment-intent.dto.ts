@@ -22,8 +22,9 @@ export class CreatePaymentIntentDto {
   @Matches(/^[A-Za-z]{3}$/, { message: 'currency must be a 3-letter ISO 4217 code (e.g. usd)' })
   currency: string;
 
+  @IsOptional()
   @IsUUID()
-  customerId: string;
+  customerId?: string;
 
   @IsOptional()
   @IsString()
