@@ -1,57 +1,120 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createPaymentIntent } from '@/actions/payment-intents';
 import { StripeProvider } from '@/components/stripe/StripeProvider';
 import { CheckoutForm } from '@/components/checkout/CheckoutForm';
+import { AmountEntryForm } from '@/components/checkout/AmountEntryForm';
+import { useMyCustomer } from '@/features/customers/customers.hooks';
 
-interface CheckoutPageProps {
-  searchParams: { amount?: string; currency?: string; customerId?: string };
-}
+type Step = 'amount' | 'payment';
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export default function CheckoutPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-export default async function CheckoutPage({ searchParams }: CheckoutPageProps) {
-  const rawAmount = searchParams.amount;
-  const rawCurrency = searchParams.currency;
-  const rawCustomerId = searchParams.customerId;
+  const { data: myCustomer, isPending: isLoadingCustomer } = useMyCustomer();
+  const customerId = myCustomer?.id;
 
-  // Validate and sanitize searchParams to prevent injection via URL manipulation
-  const amount =
-    rawAmount && /^\d+$/.test(rawAmount)
-      ? Math.max(50, parseInt(rawAmount, 10))
-      : 2000; // default $20.00
-  const currency =
-    rawCurrency && /^[a-z]{3}$/.test(rawCurrency) ? rawCurrency : 'usd';
-  const customerId =
-    rawCustomerId && UUID_RE.test(rawCustomerId) ? rawCustomerId : undefined;
+  const defaultAmount = parseDefaultAmount(searchParams.get('amount'));
+  const defaultCurrency = parseDefaultCurrency(searchParams.get('currency'));
 
-  let clientSecret: string;
-  let error: string | null = null;
+  const [step, setStep] = useState<Step>('amount');
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [amount, setAmount] = useState(0);
+  const [currency, setCurrency] = useState('usd');
+  const [isCreatingPI, setIsCreatingPI] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  try {
-    const result = await createPaymentIntent({ amount, currency, customerId });
-    clientSecret = result.clientSecret;
-  } catch (err) {
-    error = err instanceof Error ? err.message : 'Failed to initialize checkout';
+  if (isLoadingCustomer) {
     return (
       <div className="max-w-lg mx-auto">
-        <div className="card">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Checkout</h1>
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-            {error}
-          </div>
+        <div className="card animate-pulse">
+          <div className="h-6 bg-zinc-800 rounded w-1/3 mb-6" />
+          <div className="h-10 bg-zinc-800 rounded mb-4" />
+          <div className="h-10 bg-zinc-800 rounded" />
         </div>
       </div>
     );
   }
 
+  if (!customerId) {
+    router.push('/account');
+    return null;
+  }
+
+  const handleAmountSubmit = async (data: {
+    amount: number;
+    currency: string;
+    savePaymentMethod: boolean;
+  }) => {
+    setError(null);
+    setIsCreatingPI(true);
+
+    try {
+      const result = await createPaymentIntent({
+        amount: data.amount,
+        currency: data.currency,
+        customerId,
+        setupFutureUsage: data.savePaymentMethod ? 'off_session' : undefined,
+      });
+      setAmount(data.amount);
+      setCurrency(data.currency);
+      setClientSecret(result.clientSecret);
+      setStep('payment');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create payment. Please try again.');
+    } finally {
+      setIsCreatingPI(false);
+    }
+  };
+
+  const handleBack = () => {
+    setStep('amount');
+    setClientSecret(null);
+    setError(null);
+  };
+
   return (
     <div className="max-w-lg mx-auto">
       <div className="card">
-        <h1 className="text-2xl font-bold text-gray-900 mb-6">Checkout</h1>
-        <StripeProvider clientSecret={clientSecret!}>
-          <CheckoutForm amount={amount} currency={currency} />
-        </StripeProvider>
+        <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight mb-6">
+          {step === 'amount' ? 'Checkout' : 'Complete Payment'}
+        </h1>
+
+        {error && (
+          <div role="alert" className="alert-error mb-4">
+            <p>{error}</p>
+          </div>
+        )}
+
+        {step === 'amount' && (
+          <AmountEntryForm
+            onSubmit={handleAmountSubmit}
+            isLoading={isCreatingPI}
+            defaultAmount={defaultAmount}
+            defaultCurrency={defaultCurrency}
+          />
+        )}
+
+        {step === 'payment' && clientSecret && (
+          <StripeProvider clientSecret={clientSecret}>
+            <CheckoutForm amount={amount} currency={currency} onBack={handleBack} />
+          </StripeProvider>
+        )}
       </div>
     </div>
   );
+}
+
+function parseDefaultAmount(raw: string | null): number | undefined {
+  if (!raw || !/^\d+$/.test(raw)) return undefined;
+  const n = parseInt(raw, 10);
+  return n >= 50 ? n : undefined;
+}
+
+function parseDefaultCurrency(raw: string | null): string | undefined {
+  if (!raw || !/^[a-z]{3}$/.test(raw)) return undefined;
+  return raw;
 }

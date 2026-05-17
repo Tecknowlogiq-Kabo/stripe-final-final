@@ -9,3 +9,4 @@ logs/
 *.log
 .turbo/
 oracle_data/
+.playwright-cli/

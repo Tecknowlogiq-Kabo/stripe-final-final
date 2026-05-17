@@ -7,9 +7,10 @@ import type { MappedStripeError } from '@/lib/stripe-errors';
 interface CheckoutFormProps {
   amount: number;
   currency: string;
+  onBack?: () => void;
 }
 
-export function CheckoutForm({ amount, currency }: CheckoutFormProps) {
+export function CheckoutForm({ amount, currency, onBack }: CheckoutFormProps) {
   const [succeeded, setSucceeded] = useState(false);
   const [result, setResult] = useState<PaymentFormResult | null>(null);
   const [error, setError] = useState<MappedStripeError | null>(null);
@@ -70,9 +71,20 @@ export function CheckoutForm({ amount, currency }: CheckoutFormProps) {
 
   return (
     <div>
-      <div className="mb-6 p-4 bg-zinc-800/50 rounded-lg border border-zinc-700/50 flex justify-between items-center">
-        <span className="text-sm font-medium text-zinc-400">Amount due</span>
-        <span className="mono text-xl font-semibold text-zinc-100">{formattedAmount}</span>
+      <div className="mb-6 p-4 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
+        <div className="flex justify-between items-center">
+          <span className="text-sm font-medium text-zinc-400">Amount due</span>
+          <span className="mono text-xl font-semibold text-zinc-100">{formattedAmount}</span>
+        </div>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="text-xs text-indigo-400 hover:text-indigo-300 mt-2 transition-colors"
+          >
+            Change amount
+          </button>
+        )}
       </div>
 
       {error && (
