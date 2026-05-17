@@ -1,13 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { DataSource } from 'typeorm';
 import { randomUUID } from 'crypto';
 import Stripe from 'stripe';
-import {
-  StripeWebhookEvent,
-} from '../entities/stripe-webhook-event.entity';
 import { PaymentIntentHandler } from './handlers/payment-intent.handler';
 import { SetupIntentHandler } from './handlers/setup-intent.handler';
 import { SubscriptionHandler } from './handlers/subscription.handler';
@@ -15,8 +10,8 @@ import { InvoiceHandler } from './handlers/invoice.handler';
 import { PaymentMethodHandler } from './handlers/payment-method.handler';
 import { CustomerHandler } from './handlers/customer.handler';
 import { MandateHandler } from './handlers/mandate.handler';
-import { WEBHOOK_SELECT } from '../database/query-constants';
 import { WEBHOOK_QUEUE } from './webhook-queue.constants';
+import { WebhooksRepository } from './webhooks.repository';
 
 type WebhookHandler = { handle: (event: Stripe.Event) => Promise<void> };
 
@@ -26,8 +21,7 @@ export class WebhooksService {
   private readonly handlerRegistry: Map<string, WebhookHandler>;
 
   constructor(
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
+    private readonly repo: WebhooksRepository,
     @InjectQueue(WEBHOOK_QUEUE)
     private readonly webhookQueue: Queue,
     private readonly paymentIntentHandler: PaymentIntentHandler,
@@ -74,10 +68,7 @@ export class WebhooksService {
    * Returns immediately so Stripe receives a 200 before processing begins.
    */
   async processEvent(event: Stripe.Event): Promise<void> {
-    const [existing] = await this.dataSource.query<StripeWebhookEvent[]>(
-      `SELECT ${WEBHOOK_SELECT} FROM STRIPE_WEBHOOK_EVENTS WHERE STRIPE_EVENT_ID = :1 AND ROWNUM = 1`,
-      [event.id],
-    );
+    const existing = await this.repo.findByStripeEventId(event.id);
 
     if (existing?.status === 'processed') {
       this.logger.log({
@@ -91,17 +82,10 @@ export class WebhooksService {
     let recordId: string;
     if (existing) {
       recordId = existing.id;
-      await this.dataSource.query(
-        `UPDATE STRIPE_WEBHOOK_EVENTS SET EVENT_TYPE = :1, PAYLOAD = :2, STATUS = :3, ERROR_MESSAGE = NULL, RETRY_COUNT = :4, PROCESSED_AT = NULL, UPDATED_AT = SYSDATE WHERE ID = :5`,
-        [event.type, JSON.stringify(event), 'pending', 0, existing.id],
-      );
+      await this.repo.updateForRetry(existing.id, event.type, JSON.stringify(event));
     } else {
       recordId = randomUUID();
-      await this.dataSource.query(
-        `INSERT INTO STRIPE_WEBHOOK_EVENTS (ID, STRIPE_EVENT_ID, EVENT_TYPE, PAYLOAD, STATUS, RETRY_COUNT, CREATED_AT, UPDATED_AT)
-         VALUES (:1, :2, :3, :4, :5, :6, SYSDATE, SYSDATE)`,
-        [recordId, event.id, event.type, JSON.stringify(event), 'pending', 0],
-      );
+      await this.repo.insert(recordId, event.id, event.type, JSON.stringify(event));
     }
 
     await this.webhookQueue.add(
@@ -124,20 +108,13 @@ export class WebhooksService {
    * then marks the record as processed or failed.
    */
   async execute(eventId: string, recordId: string): Promise<void> {
-    const [row] = await this.dataSource.query<{ payload: string }[]>(
-      `SELECT PAYLOAD AS "payload" FROM STRIPE_WEBHOOK_EVENTS WHERE ID = :1`,
-      [recordId],
-    );
-
-    const event = JSON.parse(row.payload) as Stripe.Event;
+    const payload = await this.repo.getPayload(recordId);
+    const event = JSON.parse(payload) as Stripe.Event;
 
     try {
       await this.dispatch(event);
 
-      await this.dataSource.query(
-        `UPDATE STRIPE_WEBHOOK_EVENTS SET STATUS = :1, PROCESSED_AT = SYSDATE, UPDATED_AT = SYSDATE WHERE ID = :2`,
-        ['processed', recordId],
-      );
+      await this.repo.markProcessed(recordId);
 
       this.logger.log({
         message: 'Webhook event processed successfully',
@@ -148,10 +125,7 @@ export class WebhooksService {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
 
-      await this.dataSource.query(
-        `UPDATE STRIPE_WEBHOOK_EVENTS SET STATUS = :1, ERROR_MESSAGE = :2, RETRY_COUNT = RETRY_COUNT + 1, UPDATED_AT = SYSDATE WHERE ID = :3`,
-        ['failed', errorMessage, recordId],
-      );
+      await this.repo.markFailed(recordId, errorMessage);
 
       this.logger.error({
         message: 'Webhook event processing failed',

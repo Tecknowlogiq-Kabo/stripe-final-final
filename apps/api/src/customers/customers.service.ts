@@ -4,26 +4,20 @@ import {
   Logger,
   ConflictException,
 } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { StripeCustomer } from '../entities/stripe-customer.entity';
-import { StripePaymentMethod } from '../entities/stripe-payment-method.entity';
-import { StripeSubscription } from '../entities/stripe-subscription.entity';
 import { StripeService } from '../stripe/stripe.service';
 import { RedisService, CacheKeys, CacheTtl } from '../redis/redis.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
-import { CUSTOMER_SELECT, PM_SELECT, SUB_SELECT } from '../database/query-constants';
-import { withTransaction } from '../database/transaction.helper';
+import { CustomersRepository } from './customers.repository';
 
 @Injectable()
 export class CustomersService {
   private readonly logger = new Logger(CustomersService.name);
 
   constructor(
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
+    private readonly repo: CustomersRepository,
     private readonly stripeService: StripeService,
     private readonly redis: RedisService,
   ) {}
@@ -33,19 +27,13 @@ export class CustomersService {
     idempotencyKey: string,
     userId: string,
   ): Promise<StripeCustomer> {
-    const [existing] = await this.dataSource.query<StripeCustomer[]>(
-      `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE IDEMPOTENCY_KEY = :1 AND ROWNUM = 1`,
-      [idempotencyKey],
-    );
+    const existing = await this.repo.findByIdempotencyKey(idempotencyKey);
     if (existing) {
       this.logger.log({ message: 'Returning cached customer', idempotencyKey });
       return existing;
     }
 
-    const [emailExists] = await this.dataSource.query<StripeCustomer[]>(
-      `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE EMAIL = :1 AND IS_DELETED = 0 AND ROWNUM = 1`,
-      [dto.email],
-    );
+    const emailExists = await this.repo.findActiveByEmail(dto.email);
     if (emailExists) {
       throw new ConflictException('A customer with this email already exists');
     }
@@ -67,22 +55,16 @@ export class CustomersService {
 
     const id = randomUUID();
     try {
-      await withTransaction(this.dataSource, async (runner) => {
-        await runner.query(
-          `INSERT INTO STRIPE_CUSTOMERS (ID, STRIPE_CUSTOMER_ID, EMAIL, NAME, PHONE, METADATA, IDEMPOTENCY_KEY, USER_ID, IS_DELETED, CREATED_AT, UPDATED_AT)
-           VALUES (:1, :2, :3, :4, :5, :6, :7, :8, 0, SYSDATE, SYSDATE)`,
-          [
-            id,
-            stripeCustomer.id,
-            dto.email,
-            dto.name ?? null,
-            dto.phone ?? null,
-            dto.metadata ? JSON.stringify(dto.metadata) : null,
-            idempotencyKey,
-            userId,
-          ],
-        );
-      });
+      await this.repo.insert(
+        id,
+        stripeCustomer.id,
+        dto.email,
+        dto.name ?? null,
+        dto.phone ?? null,
+        dto.metadata ? JSON.stringify(dto.metadata) : null,
+        idempotencyKey,
+        userId,
+      );
     } catch (err) {
       // Prevent orphaned Stripe customer when local insert fails
       this.stripeService.customers.del(stripeCustomer.id).catch((cleanupErr: Error) =>
@@ -99,10 +81,7 @@ export class CustomersService {
   }
 
   async findByUserId(userId: string): Promise<StripeCustomer | null> {
-    const [customer] = await this.dataSource.query<StripeCustomer[]>(
-      `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE USER_ID = :1 AND IS_DELETED = 0 AND ROWNUM = 1`,
-      [userId],
-    );
+    const customer = await this.repo.findByUserId(userId);
     if (!customer) return null;
     return this.findById(customer.id);
   }
@@ -111,22 +90,13 @@ export class CustomersService {
     const cached = await this.redis.get<StripeCustomer>(CacheKeys.customer(id));
     if (cached) return cached;
 
-    const [customer] = await this.dataSource.query<StripeCustomer[]>(
-      `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE ID = :1 AND IS_DELETED = 0`,
-      [id],
-    );
+    const customer = await this.repo.findById(id);
     if (!customer) {
       throw new NotFoundException(`Customer ${id} not found`);
     }
 
-    const paymentMethods = await this.dataSource.query<StripePaymentMethod[]>(
-      `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE CUSTOMER_ID = :1 ORDER BY IS_DEFAULT DESC, CREATED_AT DESC`,
-      [id],
-    );
-    const subscriptions = await this.dataSource.query<StripeSubscription[]>(
-      `SELECT ${SUB_SELECT} FROM STRIPE_SUBSCRIPTIONS WHERE CUSTOMER_ID = :1 ORDER BY CREATED_AT DESC`,
-      [id],
-    );
+    const paymentMethods = await this.repo.findPaymentMethodsByCustomer(id);
+    const subscriptions = await this.repo.findSubscriptionsByCustomer(id);
 
     customer.paymentMethods = paymentMethods;
     customer.subscriptions = subscriptions;
@@ -139,10 +109,7 @@ export class CustomersService {
     const cached = await this.redis.get<StripeCustomer>(CacheKeys.customerByStripe(stripeCustomerId));
     if (cached) return cached;
 
-    const [row] = await this.dataSource.query<StripeCustomer[]>(
-      `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE STRIPE_CUSTOMER_ID = :1 AND IS_DELETED = 0`,
-      [stripeCustomerId],
-    );
+    const row = await this.repo.findByStripeId(stripeCustomerId);
     if (!row) {
       throw new NotFoundException(
         `Customer with Stripe ID ${stripeCustomerId} not found`,
@@ -157,11 +124,7 @@ export class CustomersService {
   }
 
   async findByEmail(email: string): Promise<StripeCustomer | null> {
-    const [customer] = await this.dataSource.query<StripeCustomer[]>(
-      `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE EMAIL = :1 AND IS_DELETED = 0`,
-      [email],
-    );
-    return customer ?? null;
+    return this.repo.findActiveByEmail(email);
   }
 
   async update(
@@ -182,19 +145,12 @@ export class CustomersService {
       { idempotencyKey },
     );
 
-    await this.dataSource.query(
-      `UPDATE STRIPE_CUSTOMERS SET EMAIL = :1, NAME = :2, PHONE = :3, METADATA = :4, UPDATED_AT = SYSDATE WHERE ID = :5`,
-      [
-        dto.email ?? customer.email,
-        dto.name !== undefined ? (dto.name ?? null) : (customer.name ?? null),
-        dto.phone !== undefined
-          ? (dto.phone ?? null)
-          : (customer.phone ?? null),
-        dto.metadata
-          ? JSON.stringify(dto.metadata)
-          : (customer.metadata ?? null),
-        id,
-      ],
+    await this.repo.update(
+      id,
+      dto.email ?? customer.email,
+      dto.name !== undefined ? (dto.name ?? null) : (customer.name ?? null),
+      dto.phone !== undefined ? (dto.phone ?? null) : (customer.phone ?? null),
+      dto.metadata ? JSON.stringify(dto.metadata) : (customer.metadata ?? null),
     );
 
     await this.redis.del(
@@ -207,10 +163,7 @@ export class CustomersService {
   async softDelete(id: string): Promise<void> {
     const customer = await this.findById(id);
     await this.stripeService.customers.del(customer.stripeCustomerId);
-    await this.dataSource.query(
-      `UPDATE STRIPE_CUSTOMERS SET IS_DELETED = 1, UPDATED_AT = SYSDATE WHERE ID = :1`,
-      [id],
-    );
+    await this.repo.softDelete(id);
     await this.redis.del(
       CacheKeys.customer(id),
       CacheKeys.customerByStripe(customer.stripeCustomerId),
@@ -259,14 +212,11 @@ export class CustomersService {
     }
     const customer = await this.findByStripeId(stripeCustomerId);
 
-    await this.dataSource.query(
-      `UPDATE STRIPE_CUSTOMERS SET EMAIL = :1, NAME = :2, PHONE = :3, UPDATED_AT = SYSDATE WHERE ID = :4`,
-      [
-        stripeCustomer.email ?? customer.email,
-        stripeCustomer.name ?? customer.name,
-        stripeCustomer.phone ?? customer.phone,
-        customer.id,
-      ],
+    await this.repo.syncUpdate(
+      customer.id,
+      stripeCustomer.email ?? customer.email,
+      stripeCustomer.name ?? customer.name ?? null,
+      stripeCustomer.phone ?? customer.phone ?? null,
     );
 
     await this.redis.del(

@@ -1,21 +1,33 @@
 // @ts-nocheck — Stripe SDK overloaded method types prevent TS from recognizing jest.Mock methods at compile time
 import { Test, TestingModule } from '@nestjs/testing';
-import { DataSource } from 'typeorm';
 import { CustomersService } from './customers.service';
+import { CustomersRepository } from './customers.repository';
 import { StripeService } from '../stripe/stripe.service';
 import { RedisService } from '../redis/redis.service';
 import { createMockStripe } from '../../test/stripe-mock.factory';
 
 describe('CustomersService', () => {
   let service: CustomersService;
-  let queryMock: jest.Mock;
+  let repoMock: Record<string, jest.Mock>;
   let mockStripe: ReturnType<typeof createMockStripe>;
   let redisGetMock: jest.Mock;
   let redisSetMock: jest.Mock;
   let redisDelMock: jest.Mock;
 
   beforeEach(async () => {
-    queryMock = jest.fn();
+    repoMock = {
+      findByIdempotencyKey: jest.fn(),
+      findActiveByEmail: jest.fn(),
+      findById: jest.fn(),
+      findByUserId: jest.fn(),
+      findByStripeId: jest.fn(),
+      findPaymentMethodsByCustomer: jest.fn().mockResolvedValue([]),
+      findSubscriptionsByCustomer: jest.fn().mockResolvedValue([]),
+      insert: jest.fn(),
+      update: jest.fn(),
+      softDelete: jest.fn(),
+      syncUpdate: jest.fn(),
+    };
     mockStripe = createMockStripe();
     redisGetMock = jest.fn().mockResolvedValue(null);
     redisSetMock = jest.fn();
@@ -24,7 +36,7 @@ describe('CustomersService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CustomersService,
-        { provide: DataSource, useValue: { query: queryMock, createQueryRunner: jest.fn() } },
+        { provide: CustomersRepository, useValue: repoMock },
         { provide: StripeService, useValue: mockStripe },
         { provide: RedisService, useValue: { get: redisGetMock, set: redisSetMock, del: redisDelMock } },
       ],
@@ -39,7 +51,7 @@ describe('CustomersService', () => {
     const userId = 'user-1';
 
     it('returns cached customer on idempotency match', async () => {
-      queryMock.mockResolvedValueOnce([{ id: 'cust-1', email: 'test@example.com', stripeCustomerId: 'cus_1' }]);
+      repoMock.findByIdempotencyKey.mockResolvedValueOnce({ id: 'cust-1', email: 'test@example.com', stripeCustomerId: 'cus_1' });
 
       const result = await service.create(dto, idempotencyKey, userId);
 
@@ -48,9 +60,8 @@ describe('CustomersService', () => {
     });
 
     it('throws ConflictException when email already exists', async () => {
-      queryMock
-        .mockResolvedValueOnce([]) // No idempotency
-        .mockResolvedValueOnce([{ id: 'existing', email: 'test@example.com' }]); // Email exists
+      repoMock.findByIdempotencyKey.mockResolvedValueOnce(null);
+      repoMock.findActiveByEmail.mockResolvedValueOnce({ id: 'existing', email: 'test@example.com' });
 
       await expect(service.create(dto, idempotencyKey, userId)).rejects.toThrow(
         'A customer with this email already exists',
@@ -65,14 +76,11 @@ describe('CustomersService', () => {
       const result = await service.findById('cust-1');
 
       expect(result.email).toBe('cached@test.com');
-      expect(queryMock).not.toHaveBeenCalled();
+      expect(repoMock.findById).not.toHaveBeenCalled();
     });
 
     it('fetches from DB and caches when not cached', async () => {
-      queryMock
-        .mockResolvedValueOnce([{ id: 'cust-1', email: 'db@test.com', stripeCustomerId: 'cus_1' }])
-        .mockResolvedValueOnce([]) // payment methods
-        .mockResolvedValueOnce([]); // subscriptions
+      repoMock.findById.mockResolvedValueOnce({ id: 'cust-1', email: 'db@test.com', stripeCustomerId: 'cus_1' });
 
       const result = await service.findById('cust-1');
 
@@ -81,7 +89,7 @@ describe('CustomersService', () => {
     });
 
     it('throws NotFoundException for unknown id', async () => {
-      queryMock.mockResolvedValueOnce([]);
+      repoMock.findById.mockResolvedValueOnce(null);
 
       await expect(service.findById('nonexistent')).rejects.toThrow('Customer nonexistent not found');
     });
@@ -91,11 +99,11 @@ describe('CustomersService', () => {
     it('deletes from Stripe, marks deleted locally, clears cache', async () => {
       redisGetMock.mockResolvedValueOnce({ id: 'cust-1', stripeCustomerId: 'cus_1' });
       mockStripe.customers.del.mockResolvedValueOnce({ id: 'cus_1', deleted: true } as any);
-      queryMock.mockResolvedValueOnce({});
 
       await service.softDelete('cust-1');
 
       expect(mockStripe.customers.del).toHaveBeenCalledWith('cus_1');
+      expect(repoMock.softDelete).toHaveBeenCalledWith('cust-1');
       expect(redisDelMock).toHaveBeenCalled();
     });
   });

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
-import { DataSource } from 'typeorm';
 import { WebhooksService } from './webhooks.service';
+import { WebhooksRepository } from './webhooks.repository';
 import { WEBHOOK_QUEUE } from './webhook-queue.constants';
 import { PaymentIntentHandler } from './handlers/payment-intent.handler';
 import { SetupIntentHandler } from './handlers/setup-intent.handler';
@@ -27,19 +27,26 @@ function makeEvent(overrides: Partial<{ id: string; type: string }> = {}) {
 
 describe('WebhooksService', () => {
   let service: WebhooksService;
-  let queryMock: jest.Mock;
+  let repoMock: Record<string, jest.Mock>;
   let queueAddMock: jest.Mock;
   let paymentIntentHandler: { handle: jest.Mock };
 
   beforeEach(async () => {
-    queryMock = jest.fn();
+    repoMock = {
+      findByStripeEventId: jest.fn(),
+      insert: jest.fn(),
+      updateForRetry: jest.fn(),
+      getPayload: jest.fn(),
+      markProcessed: jest.fn(),
+      markFailed: jest.fn(),
+    };
     queueAddMock = jest.fn().mockResolvedValue({ id: 'job-1' });
     paymentIntentHandler = { handle: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WebhooksService,
-        { provide: DataSource, useValue: { query: queryMock } },
+        { provide: WebhooksRepository, useValue: repoMock },
         { provide: getQueueToken(WEBHOOK_QUEUE), useValue: { add: queueAddMock } },
         { provide: PaymentIntentHandler, useValue: paymentIntentHandler },
         { provide: SetupIntentHandler, useValue: { handle: jest.fn() } },
@@ -56,26 +63,25 @@ describe('WebhooksService', () => {
 
   describe('processEvent', () => {
     it('skips already processed events without enqueueing', async () => {
-      queryMock.mockResolvedValueOnce([{ id: 'rec-1', status: 'processed', retryCount: 0 }]);
+      repoMock.findByStripeEventId.mockResolvedValueOnce({ id: 'rec-1', status: 'processed', retryCount: 0 });
 
       await service.processEvent(makeEvent());
 
-      expect(queryMock).toHaveBeenCalledTimes(1);
+      expect(repoMock.findByStripeEventId).toHaveBeenCalledWith('evt_test123');
       expect(queueAddMock).not.toHaveBeenCalled();
     });
 
     it('inserts new event record and enqueues job for unknown event id', async () => {
-      queryMock
-        .mockResolvedValueOnce([])  // SELECT: no existing
-        .mockResolvedValueOnce({}); // INSERT
+      repoMock.findByStripeEventId.mockResolvedValueOnce(null);
 
       await service.processEvent(makeEvent());
 
-      const insertCall = queryMock.mock.calls[1];
-      expect(insertCall[0]).toContain('INSERT INTO STRIPE_WEBHOOK_EVENTS');
-      expect(insertCall[1][1]).toBe('evt_test123');
-      expect(insertCall[1][2]).toBe('payment_intent.succeeded');
-      expect(insertCall[1][4]).toBe('pending');
+      expect(repoMock.insert).toHaveBeenCalledWith(
+        expect.any(String),
+        'evt_test123',
+        'payment_intent.succeeded',
+        expect.any(String),
+      );
 
       expect(queueAddMock).toHaveBeenCalledWith(
         WEBHOOK_QUEUE,
@@ -85,15 +91,15 @@ describe('WebhooksService', () => {
     });
 
     it('updates existing failed event record and enqueues retry', async () => {
-      queryMock
-        .mockResolvedValueOnce([{ id: 'rec-1', status: 'failed', retryCount: 2 }])
-        .mockResolvedValueOnce({}); // UPDATE
+      repoMock.findByStripeEventId.mockResolvedValueOnce({ id: 'rec-1', status: 'failed', retryCount: 2 });
 
       await service.processEvent(makeEvent());
 
-      const updateCall = queryMock.mock.calls[1];
-      expect(updateCall[0]).toContain('UPDATE STRIPE_WEBHOOK_EVENTS');
-      expect(updateCall[1][3]).toBe(0); // reset retry count
+      expect(repoMock.updateForRetry).toHaveBeenCalledWith(
+        'rec-1',
+        'payment_intent.succeeded',
+        expect.any(String),
+      );
 
       expect(queueAddMock).toHaveBeenCalledWith(
         WEBHOOK_QUEUE,
@@ -109,43 +115,30 @@ describe('WebhooksService', () => {
     const event = makeEvent({ type: 'payment_intent.succeeded' });
 
     it('dispatches to the correct handler and marks event processed', async () => {
-      queryMock
-        .mockResolvedValueOnce([{ payload: JSON.stringify(event) }]) // SELECT payload
-        .mockResolvedValueOnce({}); // UPDATE processed
+      repoMock.getPayload.mockResolvedValueOnce(JSON.stringify(event));
 
       await service.execute(eventId, recordId);
 
       expect(paymentIntentHandler.handle).toHaveBeenCalledTimes(1);
-
-      const processedUpdate = queryMock.mock.calls[1];
-      expect(processedUpdate[1][0]).toBe('processed');
-      expect(processedUpdate[1][1]).toBe(recordId);
+      expect(repoMock.markProcessed).toHaveBeenCalledWith(recordId);
     });
 
     it('marks event failed and rethrows when handler throws', async () => {
       paymentIntentHandler.handle.mockRejectedValue(new Error('Boom'));
-      queryMock
-        .mockResolvedValueOnce([{ payload: JSON.stringify(event) }]) // SELECT payload
-        .mockResolvedValueOnce({}); // UPDATE failed
+      repoMock.getPayload.mockResolvedValueOnce(JSON.stringify(event));
 
       await expect(service.execute(eventId, recordId)).rejects.toThrow('Boom');
 
-      const failedUpdate = queryMock.mock.calls[1];
-      expect(failedUpdate[1][0]).toBe('failed');
-      expect(failedUpdate[1][1]).toBe('Boom');
-      expect(failedUpdate[1][2]).toBe(recordId);
+      expect(repoMock.markFailed).toHaveBeenCalledWith(recordId, 'Boom');
     });
 
     it('logs warning and marks processed for unhandled event types', async () => {
       const unknownEvent = makeEvent({ type: 'charge.updated' });
-      queryMock
-        .mockResolvedValueOnce([{ payload: JSON.stringify(unknownEvent) }])
-        .mockResolvedValueOnce({});
+      repoMock.getPayload.mockResolvedValueOnce(JSON.stringify(unknownEvent));
 
       await service.execute(eventId, recordId);
 
-      const finalUpdate = queryMock.mock.calls[1];
-      expect(finalUpdate[1][0]).toBe('processed');
+      expect(repoMock.markProcessed).toHaveBeenCalledWith(recordId);
     });
   });
 });

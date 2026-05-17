@@ -3,32 +3,24 @@ import {
   NotFoundException,
   Logger,
 } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import { randomUUID } from 'crypto';
 import { StripePaymentMethod } from '../entities/stripe-payment-method.entity';
 import { StripeService } from '../stripe/stripe.service';
 import { CustomersService } from '../customers/customers.service';
 import Stripe from 'stripe';
-import { PM_SELECT } from '../database/query-constants';
-import { withTransaction } from '../database/transaction.helper';
+import { PaymentMethodsRepository } from './payment-methods.repository';
 
 @Injectable()
 export class PaymentMethodsService {
   private readonly logger = new Logger(PaymentMethodsService.name);
 
   constructor(
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
+    private readonly repo: PaymentMethodsRepository,
     private readonly stripeService: StripeService,
     private readonly customersService: CustomersService,
   ) {}
 
   async findById(id: string): Promise<StripePaymentMethod> {
-    const [pm] = await this.dataSource.query<StripePaymentMethod[]>(
-      `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE ID = :1 AND ROWNUM = 1`,
-      [id],
-    );
+    const pm = await this.repo.findById(id);
     if (!pm) throw new NotFoundException(`PaymentMethod ${id} not found`);
     return pm;
   }
@@ -40,42 +32,24 @@ export class PaymentMethodsService {
   ): Promise<{ data: StripePaymentMethod[]; total: number; page: number; limit: number }> {
     await this.customersService.findById(customerId);
 
-    const [countResult] = await this.dataSource.query<{ cnt: string }[]>(
-      `SELECT COUNT(*) AS "cnt" FROM STRIPE_PAYMENT_METHODS WHERE CUSTOMER_ID = :1`,
-      [customerId],
-    );
-    const total = Number(countResult.cnt);
-
     const offset = (page - 1) * limit;
-    const data = await this.dataSource.query<StripePaymentMethod[]>(
-      `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE CUSTOMER_ID = :1 ORDER BY IS_DEFAULT DESC, CREATED_AT DESC OFFSET :2 ROWS FETCH NEXT :3 ROWS ONLY`,
-      [customerId, offset, limit],
-    );
+    const { data, total } = await this.repo.listByCustomer(customerId, offset, limit);
 
     return { data, total, page, limit };
   }
 
   async detach(id: string): Promise<void> {
-    const [pm] = await this.dataSource.query<StripePaymentMethod[]>(
-      `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE ID = :1 AND ROWNUM = 1`,
-      [id],
-    );
+    const pm = await this.repo.findById(id);
     if (!pm) throw new NotFoundException(`PaymentMethod ${id} not found`);
 
     await this.stripeService.paymentMethods.detach(pm.stripePaymentMethodId);
-    await this.dataSource.query(
-      `DELETE FROM STRIPE_PAYMENT_METHODS WHERE ID = :1`,
-      [id],
-    );
+    await this.repo.deleteById(id);
     this.logger.log({ message: 'PaymentMethod detached', paymentMethodId: id });
   }
 
   async setDefault(customerId: string, paymentMethodId: string): Promise<void> {
     await this.customersService.findById(customerId);
-    const [pm] = await this.dataSource.query<StripePaymentMethod[]>(
-      `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE ID = :1 AND CUSTOMER_ID = :2 AND ROWNUM = 1`,
-      [paymentMethodId, customerId],
-    );
+    const pm = await this.repo.findByIdAndCustomer(paymentMethodId, customerId);
     if (!pm) throw new NotFoundException(`PaymentMethod ${paymentMethodId} not found`);
 
     const customer = await this.customersService.findById(customerId);
@@ -83,14 +57,8 @@ export class PaymentMethodsService {
       invoice_settings: { default_payment_method: pm.stripePaymentMethodId },
     });
 
-    await this.dataSource.query(
-      `UPDATE STRIPE_PAYMENT_METHODS SET IS_DEFAULT = 0, UPDATED_AT = SYSDATE WHERE CUSTOMER_ID = :1`,
-      [customerId],
-    );
-    await this.dataSource.query(
-      `UPDATE STRIPE_PAYMENT_METHODS SET IS_DEFAULT = 1, UPDATED_AT = SYSDATE WHERE ID = :1`,
-      [paymentMethodId],
-    );
+    await this.repo.clearDefaultByCustomer(customerId);
+    await this.repo.setDefault(paymentMethodId);
   }
 
   async syncFromStripe(
@@ -100,63 +68,16 @@ export class PaymentMethodsService {
     const customer = await this.customersService.findById(customerId);
     const stripePM = await this.stripeService.paymentMethods.retrieve(stripePaymentMethodId);
 
-    const [existing] = await this.dataSource.query<StripePaymentMethod[]>(
-      `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE STRIPE_PM_ID = :1 AND ROWNUM = 1`,
-      [stripePaymentMethodId],
-    );
-
+    const existing = await this.repo.findByStripeId(stripePaymentMethodId);
     const fields = this.extractPmFields(stripePM);
+
     if (existing) {
-      await this.dataSource.query(
-        `UPDATE STRIPE_PAYMENT_METHODS SET TYPE = :1, LAST4 = :2, BRAND = :3, EXP_MONTH = :4, EXP_YEAR = :5, FINGERPRINT = :6, DETAILS = :7, BILLING_DETAILS = :8, CARD_WALLET_TYPE = :9, COUNTRY = :10, FUNDING = :11, UPDATED_AT = SYSDATE WHERE ID = :12`,
-        [
-          fields.type,
-          fields.last4 ?? null,
-          fields.brand ?? null,
-          fields.expMonth ?? null,
-          fields.expYear ?? null,
-          fields.fingerprint ?? null,
-          fields.details ?? null,
-          fields.billingDetails ?? null,
-          fields.cardWalletType ?? null,
-          fields.country ?? null,
-          fields.funding ?? null,
-          existing.id,
-        ],
-      );
-      const [updated] = await this.dataSource.query<StripePaymentMethod[]>(
-        `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE ID = :1`,
-        [existing.id],
-      );
-      return updated;
+      await this.repo.updateFields(existing.id, fields);
+      const updated = await this.repo.findById(existing.id);
+      return updated!;
     }
 
-    const id = randomUUID();
-    await this.dataSource.query(
-      `INSERT INTO STRIPE_PAYMENT_METHODS (ID, STRIPE_PM_ID, TYPE, LAST4, BRAND, EXP_MONTH, EXP_YEAR, FINGERPRINT, DETAILS, BILLING_DETAILS, CARD_WALLET_TYPE, COUNTRY, FUNDING, CUSTOMER_ID, IS_DEFAULT, CREATED_AT, UPDATED_AT)
-       VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, :14, 0, SYSDATE, SYSDATE)`,
-      [
-        id,
-        stripePaymentMethodId,
-        fields.type,
-        fields.last4 ?? null,
-        fields.brand ?? null,
-        fields.expMonth ?? null,
-        fields.expYear ?? null,
-        fields.fingerprint ?? null,
-        fields.details ?? null,
-        fields.billingDetails ?? null,
-        fields.cardWalletType ?? null,
-        fields.country ?? null,
-        fields.funding ?? null,
-        customer.id,
-      ],
-    );
-    const [created] = await this.dataSource.query<StripePaymentMethod[]>(
-      `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE ID = :1`,
-      [id],
-    );
-    return created;
+    return this.repo.insertNew(stripePaymentMethodId, customer.id, fields);
   }
 
   async syncFromStripeById(stripePaymentMethodId: string): Promise<void> {
@@ -181,72 +102,17 @@ export class PaymentMethodsService {
     }
 
     const fields = this.extractPmFields(stripePM);
-    await withTransaction(this.dataSource, async (runner) => {
-      const existing: StripePaymentMethod | undefined = (
-        await runner.query(
-          `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE STRIPE_PM_ID = :1 AND ROWNUM = 1`,
-          [stripePM.id],
-        ) as StripePaymentMethod[]
-      )[0];
-
-      if (existing) {
-        await runner.query(
-          `UPDATE STRIPE_PAYMENT_METHODS SET TYPE = :1, LAST4 = :2, BRAND = :3, EXP_MONTH = :4, EXP_YEAR = :5, FINGERPRINT = :6, DETAILS = :7, BILLING_DETAILS = :8, CARD_WALLET_TYPE = :9, COUNTRY = :10, FUNDING = :11, UPDATED_AT = SYSDATE WHERE ID = :12`,
-          [
-            fields.type,
-            fields.last4 ?? null,
-            fields.brand ?? null,
-            fields.expMonth ?? null,
-            fields.expYear ?? null,
-            fields.fingerprint ?? null,
-            fields.details ?? null,
-            fields.billingDetails ?? null,
-            fields.cardWalletType ?? null,
-            fields.country ?? null,
-            fields.funding ?? null,
-            existing.id,
-          ],
-        );
-      } else {
-        const id = randomUUID();
-        await runner.query(
-          `INSERT INTO STRIPE_PAYMENT_METHODS (ID, STRIPE_PM_ID, TYPE, LAST4, BRAND, EXP_MONTH, EXP_YEAR, FINGERPRINT, DETAILS, BILLING_DETAILS, CARD_WALLET_TYPE, COUNTRY, FUNDING, CUSTOMER_ID, IS_DEFAULT, CREATED_AT, UPDATED_AT)
-           VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, :14, 0, SYSDATE, SYSDATE)`,
-          [
-            id,
-            stripePM.id,
-            fields.type,
-            fields.last4 ?? null,
-            fields.brand ?? null,
-            fields.expMonth ?? null,
-            fields.expYear ?? null,
-            fields.fingerprint ?? null,
-            fields.details ?? null,
-            fields.billingDetails ?? null,
-            fields.cardWalletType ?? null,
-            fields.country ?? null,
-            fields.funding ?? null,
-            customer.id,
-          ],
-        );
-      }
-    });
+    await this.repo.upsertFromStripeEvent(stripePM.id, customer.id, fields);
   }
 
   async removeByStripeId(stripePaymentMethodId: string): Promise<void> {
-    const [pm] = await this.dataSource.query<StripePaymentMethod[]>(
-      `SELECT ${PM_SELECT} FROM STRIPE_PAYMENT_METHODS WHERE STRIPE_PM_ID = :1 AND ROWNUM = 1`,
-      [stripePaymentMethodId],
-    );
+    const pm = await this.repo.findByStripeId(stripePaymentMethodId);
     if (pm) {
-      await this.dataSource.query(
-        `DELETE FROM STRIPE_PAYMENT_METHODS WHERE ID = :1`,
-        [pm.id],
-      );
+      await this.repo.deleteById(pm.id);
     }
   }
 
-  private extractPmFields(stripePM: Stripe.PaymentMethod): Partial<StripePaymentMethod> {
+  private extractPmFields(stripePM: Stripe.PaymentMethod): { type: string } & Partial<Omit<StripePaymentMethod, 'type'>> {
     const typeObj = (stripePM as unknown as Record<string, unknown>)[stripePM.type];
 
     // Inline country resolution: prefer card/sepa country, fall back to type-specific defaults

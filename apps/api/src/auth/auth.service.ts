@@ -3,14 +3,12 @@ import {
   ConflictException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { User } from '../entities/user.entity';
 import { RegisterDto, LoginDto } from './dto/auth.dto';
 import { TokenService } from './token.service';
-import { USER_SELECT } from '../database/query-constants';
+import { UsersRepository } from './users.repository';
 
 const SALT_ROUNDS = 12;
 
@@ -23,16 +21,12 @@ export interface AuthResponse {
 @Injectable()
 export class AuthService {
   constructor(
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
+    private readonly usersRepo: UsersRepository,
     private readonly tokenService: TokenService,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResponse> {
-    const [existing] = await this.dataSource.query<User[]>(
-      `SELECT ${USER_SELECT} FROM APP_USERS WHERE EMAIL = :1 AND ROWNUM = 1`,
-      [dto.email],
-    );
+    const existing = await this.usersRepo.findByEmail(dto.email);
     if (existing) {
       throw new ConflictException('An account with this email already exists');
     }
@@ -40,25 +34,15 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, SALT_ROUNDS);
     const id = randomUUID();
 
-    await this.dataSource.query(
-      `INSERT INTO APP_USERS (ID, EMAIL, PASSWORD_HASH, CREATED_AT, UPDATED_AT)
-       VALUES (:1, :2, :3, SYSDATE, SYSDATE)`,
-      [id, dto.email, passwordHash],
-    );
+    await this.usersRepo.insert(id, dto.email, passwordHash);
 
-    const [user] = await this.dataSource.query<User[]>(
-      `SELECT ${USER_SELECT} FROM APP_USERS WHERE ID = :1`,
-      [id],
-    );
+    const user = await this.usersRepo.findById(id);
 
-    return this.buildAuthResponse(user);
+    return this.buildAuthResponse(user!);
   }
 
   async login(dto: LoginDto): Promise<AuthResponse> {
-    const [user] = await this.dataSource.query<User[]>(
-      `SELECT ${USER_SELECT} FROM APP_USERS WHERE EMAIL = :1 AND ROWNUM = 1`,
-      [dto.email],
-    );
+    const user = await this.usersRepo.findByEmail(dto.email);
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -80,10 +64,7 @@ export class AuthService {
     // Rotate: revoke old token before issuing new pair
     await this.tokenService.revokeRefreshToken(refreshToken);
 
-    const [user] = await this.dataSource.query<User[]>(
-      `SELECT ${USER_SELECT} FROM APP_USERS WHERE ID = :1 AND ROWNUM = 1`,
-      [payload.id],
-    );
+    const user = await this.usersRepo.findById(payload.id);
     if (!user) {
       throw new UnauthorizedException('User not found');
     }

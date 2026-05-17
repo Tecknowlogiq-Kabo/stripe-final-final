@@ -1,7 +1,7 @@
 // @ts-nocheck — Stripe SDK overloaded method types prevent TS from recognizing jest.Mock methods at compile time, but runtime values ARE jest.Mocks
 import { Test, TestingModule } from '@nestjs/testing';
-import { DataSource } from 'typeorm';
 import { PaymentIntentsService } from './payment-intents.service';
+import { PaymentIntentsRepository } from './payment-intents.repository';
 import { StripeService } from '../stripe/stripe.service';
 import { CustomersService } from '../customers/customers.service';
 import { createMockStripe } from '../../test/stripe-mock.factory';
@@ -9,19 +9,28 @@ import { TEST_PAYMENT_METHODS } from '../../test/stripe-test-cards';
 
 describe('PaymentIntentsService', () => {
   let service: PaymentIntentsService;
-  let queryMock: jest.Mock;
+  let repoMock: Record<string, jest.Mock>;
   let mockStripe: ReturnType<typeof createMockStripe>;
   let findByIdMock: jest.Mock;
 
   beforeEach(async () => {
-    queryMock = jest.fn();
+    repoMock = {
+      findByIdempotencyKey: jest.fn(),
+      findById: jest.fn(),
+      findCustomerById: jest.fn(),
+      findByStripeId: jest.fn(),
+      findByCustomer: jest.fn(),
+      insert: jest.fn(),
+      updateMetadata: jest.fn(),
+      updateStatus: jest.fn(),
+    };
     mockStripe = createMockStripe();
     findByIdMock = jest.fn();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PaymentIntentsService,
-        { provide: DataSource, useValue: { query: queryMock } },
+        { provide: PaymentIntentsRepository, useValue: repoMock },
         { provide: StripeService, useValue: mockStripe },
         { provide: CustomersService, useValue: { findById: findByIdMock } },
       ],
@@ -41,12 +50,12 @@ describe('PaymentIntentsService', () => {
     const idempotencyKey = 'idem-key-1';
 
     it('returns cached payment intent when idempotency key matches', async () => {
-      queryMock.mockResolvedValueOnce([{
+      repoMock.findByIdempotencyKey.mockResolvedValueOnce({
         id: 'pi-local-1',
         clientSecret: 'pi_secret_cached',
         stripePaymentIntentId: 'pi_stripe_cached',
         status: 'succeeded',
-      }]);
+      });
 
       const result = await service.create(dto, idempotencyKey);
 
@@ -56,6 +65,7 @@ describe('PaymentIntentsService', () => {
 
     it('creates Stripe payment intent and stores locally', async () => {
       findByIdMock.mockResolvedValueOnce({ id: 'cust-uuid', stripeCustomerId: 'cus_stripe1' });
+      repoMock.findByIdempotencyKey.mockResolvedValueOnce(null);
 
       mockStripe.paymentIntents.create.mockResolvedValueOnce({
         id: 'pi_stripe_new',
@@ -70,15 +80,12 @@ describe('PaymentIntentsService', () => {
         livemode: false,
       } as any);
 
-      queryMock
-        .mockResolvedValueOnce([]) // No cached
-        .mockResolvedValueOnce({}) // INSERT
-        .mockResolvedValueOnce([{ // Saved record
-          id: 'pi-local-new',
-          clientSecret: 'pi_secret_new',
-          stripePaymentIntentId: 'pi_stripe_new',
-          status: 'requires_payment_method',
-        }]);
+      repoMock.insert.mockResolvedValueOnce({
+        id: 'pi-local-new',
+        clientSecret: 'pi_secret_new',
+        stripePaymentIntentId: 'pi_stripe_new',
+        status: 'requires_payment_method',
+      });
 
       const result = await service.create(dto, idempotencyKey);
 
@@ -91,7 +98,7 @@ describe('PaymentIntentsService', () => {
 
     it('throws when Stripe PaymentIntent is missing client_secret', async () => {
       findByIdMock.mockResolvedValueOnce({ id: 'cust-uuid', stripeCustomerId: 'cus_stripe1' });
-      queryMock.mockResolvedValueOnce([]);
+      repoMock.findByIdempotencyKey.mockResolvedValueOnce(null);
       mockStripe.paymentIntents.create.mockResolvedValueOnce({
         id: 'pi_no_secret',
         client_secret: null,
@@ -103,12 +110,11 @@ describe('PaymentIntentsService', () => {
 
   describe('findById', () => {
     it('returns payment intent with customer', async () => {
-      queryMock
-        .mockResolvedValueOnce([{
-          id: 'pi-1', stripePaymentIntentId: 'pi_stripe_1', amount: 2000,
-          currency: 'usd', status: 'succeeded', customerId: 'cust-1',
-        }])
-        .mockResolvedValueOnce([{ id: 'cust-1', stripeCustomerId: 'cus_stripe', email: 'a@b.com' }]);
+      repoMock.findById.mockResolvedValueOnce({
+        id: 'pi-1', stripePaymentIntentId: 'pi_stripe_1', amount: 2000,
+        currency: 'usd', status: 'succeeded', customerId: 'cust-1',
+      });
+      repoMock.findCustomerById.mockResolvedValueOnce({ id: 'cust-1', stripeCustomerId: 'cus_stripe', email: 'a@b.com' });
 
       const result = await service.findById('pi-1');
 
@@ -117,7 +123,7 @@ describe('PaymentIntentsService', () => {
     });
 
     it('throws NotFoundException for unknown id', async () => {
-      queryMock.mockResolvedValueOnce([]);
+      repoMock.findById.mockResolvedValueOnce(null);
 
       await expect(service.findById('nonexistent')).rejects.toThrow('PaymentIntent nonexistent not found');
     });
@@ -125,16 +131,17 @@ describe('PaymentIntentsService', () => {
 
   describe('cancel', () => {
     it('cancels via Stripe and updates local status', async () => {
-      queryMock
-        .mockResolvedValueOnce([{
+      repoMock.findById
+        .mockResolvedValueOnce({
           id: 'pi-1', stripePaymentIntentId: 'pi_stripe_1', status: 'requires_payment_method', customerId: 'cust-1',
-        }])
-        .mockResolvedValueOnce([{ id: 'cust-1', stripeCustomerId: 'cus_stripe' }]);
+        })
+        .mockResolvedValueOnce({
+          id: 'pi-1', stripePaymentIntentId: 'pi_stripe_1', status: 'canceled', customerId: 'cust-1',
+        });
+      repoMock.findCustomerById
+        .mockResolvedValueOnce({ id: 'cust-1', stripeCustomerId: 'cus_stripe' })
+        .mockResolvedValueOnce({ id: 'cust-1', stripeCustomerId: 'cus_stripe' });
       mockStripe.paymentIntents.cancel.mockResolvedValueOnce({ id: 'pi_stripe_1', status: 'canceled' } as any);
-      queryMock.mockResolvedValueOnce({}); // UPDATE
-      queryMock
-        .mockResolvedValueOnce([{ id: 'pi-1', stripePaymentIntentId: 'pi_stripe_1', status: 'canceled', customerId: 'cust-1' }])
-        .mockResolvedValueOnce([{ id: 'cust-1', stripeCustomerId: 'cus_stripe' }]);
 
       const result = await service.cancel('pi-1');
 
