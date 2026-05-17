@@ -16,7 +16,8 @@ export default function RegisterPage() {
       { email, password },
       {
         onSuccess: () => {
-          const redirectTo = new URLSearchParams(window.location.search).get('redirect') ?? '/';
+          const raw = new URLSearchParams(window.location.search).get('redirect') ?? '/';
+          const redirectTo = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
           router.push(redirectTo);
         },
       },

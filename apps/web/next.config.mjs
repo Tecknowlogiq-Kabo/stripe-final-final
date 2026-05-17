@@ -32,6 +32,8 @@ const nextConfig = {
               "img-src 'self' data:",
               "style-src 'self' 'unsafe-inline'",
               "font-src 'self' data:",
+              "base-uri 'self'",
+              "form-action 'self'",
             ].join('; '),
           },
         ],

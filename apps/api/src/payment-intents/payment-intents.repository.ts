@@ -82,6 +82,7 @@ export class PaymentIntentsRepository {
 
     const whereClause = conditions.join(' AND ');
     const sortCol = filters.sortBy === 'amount' ? 'AMOUNT' : 'CREATED_AT';
+    const sortDir = filters.sortOrder === 'ASC' ? 'ASC' : 'DESC';
 
     const [countResult] = await this.dataSource.query<{ cnt: string }[]>(
       `SELECT COUNT(*) AS "cnt" FROM STRIPE_PAYMENT_INTENTS WHERE ${whereClause}`,
@@ -92,7 +93,7 @@ export class PaymentIntentsRepository {
     const offsetIdx = idx;
     const limitIdx = idx + 1;
     const data = await this.dataSource.query<StripePaymentIntent[]>(
-      `SELECT ${PI_SELECT} FROM STRIPE_PAYMENT_INTENTS WHERE ${whereClause} ORDER BY ${sortCol} ${filters.sortOrder} OFFSET :${offsetIdx} ROWS FETCH NEXT :${limitIdx} ROWS ONLY`,
+      `SELECT ${PI_SELECT} FROM STRIPE_PAYMENT_INTENTS WHERE ${whereClause} ORDER BY ${sortCol} ${sortDir} OFFSET :${offsetIdx} ROWS FETCH NEXT :${limitIdx} ROWS ONLY`,
       [...params, filters.offset, filters.limit],
     );
 

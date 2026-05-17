@@ -45,7 +45,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message,
       correlationId: request.correlationId,
       timestamp: new Date().toISOString(),
-      path: request.url,
+      path: sanitizePath(request.url),
     });
   }
 }
