@@ -15,6 +15,7 @@ export interface CreatePaymentIntentInput {
   currency: string;
   customerId?: string;
   setupFutureUsage?: 'on_session' | 'off_session';
+  paymentMethodTypes?: string[];
   metadata?: Record<string, string>;
   description?: string;
 }
@@ -81,6 +82,7 @@ export async function createPaymentIntent(
     amount: input.amount,
     currency: input.currency,
     setupFutureUsage: input.setupFutureUsage,
+    paymentMethodTypes: input.paymentMethodTypes,
     metadata: input.metadata,
     description: input.description,
   };

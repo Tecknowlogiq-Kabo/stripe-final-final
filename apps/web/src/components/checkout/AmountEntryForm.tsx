@@ -3,44 +3,53 @@
 import { useState, type FormEvent } from 'react';
 
 interface AmountEntryFormProps {
-  onSubmit: (data: { amount: number; currency: string; savePaymentMethod: boolean }) => void;
+  onSubmit: (data: {
+    amount: number;
+    currency: string;
+    paymentMethodType: string;
+    savePaymentMethod: boolean;
+  }) => void;
   isLoading: boolean;
-  defaultAmount?: number;
-  defaultCurrency?: string;
 }
 
-const CURRENCIES = [
-  { code: 'usd', label: 'USD ($)' },
-  { code: 'eur', label: 'EUR (\u20AC)' },
-  { code: 'gbp', label: 'GBP (\u00A3)' },
-  { code: 'cad', label: 'CAD ($)' },
-  { code: 'aud', label: 'AUD ($)' },
-  { code: 'jpy', label: 'JPY (\u00A5)' },
-];
+const PAYMENT_TYPES = [
+  { type: 'card', label: 'Card', currency: 'gbp', icon: '💳' },
+  { type: 'bancontact', label: 'Bancontact', currency: 'eur', icon: '🏦' },
+  { type: 'eps', label: 'EPS', currency: 'eur', icon: '🏧' },
+  { type: 'p24', label: 'Przelewy24', currency: 'eur', icon: '🏦' },
+  { type: 'sepa_debit', label: 'SEPA Direct Debit', currency: 'eur', icon: '🇪🇺' },
+  { type: 'us_bank_account', label: 'ACH Bank Transfer', currency: 'usd', icon: '🇺🇸' },
+  { type: 'bacs_debit', label: 'BACS Direct Debit', currency: 'gbp', icon: '🇬🇧' },
+  { type: 'au_becs_debit', label: 'BECS Direct Debit', currency: 'aud', icon: '🇦🇺' },
+  { type: 'link', label: 'Link', currency: 'gbp', icon: '🔗' },
+  { type: 'amazon_pay', label: 'Amazon Pay', currency: 'gbp', icon: '📦' },
+  { type: 'revolut_pay', label: 'Revolut Pay', currency: 'gbp', icon: '💸' },
+] as const;
 
 const ZERO_DECIMAL_CURRENCIES = new Set(['jpy']);
 
-export function AmountEntryForm({
-  onSubmit,
-  isLoading,
-  defaultAmount,
-  defaultCurrency = 'usd',
-}: AmountEntryFormProps) {
-  const isZeroDecimal = defaultCurrency ? ZERO_DECIMAL_CURRENCIES.has(defaultCurrency) : false;
-  const initialDisplay = defaultAmount
-    ? isZeroDecimal
-      ? String(defaultAmount)
-      : (defaultAmount / 100).toFixed(2)
-    : '';
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  usd: '$', eur: '€', gbp: '£', aud: 'A$', cad: 'C$', jpy: '¥',
+};
 
-  const [displayAmount, setDisplayAmount] = useState(initialDisplay);
-  const [currency, setCurrency] = useState(defaultCurrency);
+export function AmountEntryForm({ onSubmit, isLoading }: AmountEntryFormProps) {
+  const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [displayAmount, setDisplayAmount] = useState('');
   const [savePaymentMethod, setSavePaymentMethod] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  const selectedPayment = PAYMENT_TYPES.find((p) => p.type === selectedType);
+  const currency = selectedPayment?.currency ?? 'usd';
+  const symbol = CURRENCY_SYMBOLS[currency] ?? currency.toUpperCase();
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     setValidationError(null);
+
+    if (!selectedType) {
+      setValidationError('Please select a payment method.');
+      return;
+    }
 
     const parsed = parseFloat(displayAmount);
     if (isNaN(parsed) || parsed <= 0) {
@@ -48,53 +57,78 @@ export function AmountEntryForm({
       return;
     }
 
-    const isZero = ZERO_DECIMAL_CURRENCIES.has(currency);
-    const amountInCents = isZero ? Math.round(parsed) : Math.round(parsed * 100);
-    const minAmount = isZero ? 50 : 50; // Stripe minimum is 50 cents / 50 units
+    const isZeroDecimal = ZERO_DECIMAL_CURRENCIES.has(currency);
+    const amountInCents = isZeroDecimal ? Math.round(parsed) : Math.round(parsed * 100);
 
-    if (amountInCents < minAmount) {
-      setValidationError(isZero ? 'Minimum amount is 50.' : 'Minimum amount is $0.50.');
+    if (amountInCents < 50) {
+      setValidationError(isZeroDecimal ? 'Minimum amount is 50.' : `Minimum amount is ${symbol}0.50.`);
       return;
     }
 
-    onSubmit({ amount: amountInCents, currency, savePaymentMethod });
+    onSubmit({
+      amount: amountInCents,
+      currency,
+      paymentMethodType: selectedType,
+      savePaymentMethod,
+    });
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div>
-        <label htmlFor="amount" className="block text-sm font-medium text-zinc-300 mb-1.5">
-          Amount
+        <label className="block text-sm font-medium text-zinc-300 mb-2">
+          Payment Method
         </label>
-        <div className="flex gap-2">
-          <input
-            id="amount"
-            type="number"
-            step={ZERO_DECIMAL_CURRENCIES.has(currency) ? '1' : '0.01'}
-            min="0"
-            inputMode="decimal"
-            placeholder={ZERO_DECIMAL_CURRENCIES.has(currency) ? '1000' : '0.00'}
-            value={displayAmount}
-            onChange={(e) => { setDisplayAmount(e.target.value); setValidationError(null); }}
-            className="input-field flex-1 text-lg tabular-nums"
-            autoFocus
-            disabled={isLoading}
-          />
-          <select
-            value={currency}
-            onChange={(e) => { setCurrency(e.target.value); setValidationError(null); }}
-            className="input-field w-32 shrink-0"
-            disabled={isLoading}
-          >
-            {CURRENCIES.map((c) => (
-              <option key={c.code} value={c.code}>{c.label}</option>
-            ))}
-          </select>
+        <div className="grid grid-cols-2 gap-2">
+          {PAYMENT_TYPES.map((pm) => (
+            <button
+              key={pm.type}
+              type="button"
+              onClick={() => { setSelectedType(pm.type); setValidationError(null); }}
+              disabled={isLoading}
+              className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-left text-sm transition-colors ${
+                selectedType === pm.type
+                  ? 'border-indigo-500 bg-indigo-500/10 text-zinc-100'
+                  : 'border-zinc-700 bg-zinc-800/50 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300'
+              }`}
+            >
+              <span className="text-base">{pm.icon}</span>
+              <span className="truncate">{pm.label}</span>
+            </button>
+          ))}
         </div>
-        {validationError && (
-          <p className="text-red-400 text-xs mt-1.5">{validationError}</p>
-        )}
       </div>
+
+      {selectedType && (
+        <div>
+          <label htmlFor="amount" className="block text-sm font-medium text-zinc-300 mb-1.5">
+            Amount
+            <span className="ml-2 text-xs text-zinc-500">({currency.toUpperCase()})</span>
+          </label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-lg">
+              {symbol}
+            </span>
+            <input
+              id="amount"
+              type="number"
+              step={ZERO_DECIMAL_CURRENCIES.has(currency) ? '1' : '0.01'}
+              min="0"
+              inputMode="decimal"
+              placeholder="0.00"
+              value={displayAmount}
+              onChange={(e) => { setDisplayAmount(e.target.value); setValidationError(null); }}
+              className="input-field text-lg tabular-nums pl-8"
+              autoFocus
+              disabled={isLoading}
+            />
+          </div>
+        </div>
+      )}
+
+      {validationError && (
+        <p className="text-red-400 text-xs">{validationError}</p>
+      )}
 
       <label className="flex items-center gap-3 cursor-pointer group">
         <input
@@ -116,7 +150,7 @@ export function AmountEntryForm({
 
       <button
         type="submit"
-        disabled={isLoading || !displayAmount}
+        disabled={isLoading || !selectedType || !displayAmount}
         className="btn-primary w-full"
       >
         {isLoading ? 'Creating payment...' : 'Continue to Payment'}

@@ -53,6 +53,10 @@ export class PaymentIntentsService {
       internalCustomerId = customer.id;
     }
 
+    const paymentMethodConfig = dto.paymentMethodTypes?.length
+      ? { payment_method_types: dto.paymentMethodTypes }
+      : { automatic_payment_methods: { enabled: true } };
+
     const stripePI = await this.stripeService.paymentIntents.create(
       {
         amount: dto.amount,
@@ -62,7 +66,7 @@ export class PaymentIntentsService {
         setup_future_usage: dto.setupFutureUsage,
         receipt_email: dto.receiptEmail,
         statement_descriptor: dto.statementDescriptor,
-        automatic_payment_methods: { enabled: true },
+        ...paymentMethodConfig,
         metadata: { ...dto.metadata, ...(internalCustomerId ? { internal_customer_id: internalCustomerId } : {}) },
         description: dto.description,
       },

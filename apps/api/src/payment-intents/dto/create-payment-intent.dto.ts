@@ -5,6 +5,7 @@ import {
   IsUUID,
   IsOptional,
   IsEnum,
+  IsArray,
   Min,
   Max,
   MaxLength,
@@ -43,6 +44,11 @@ export class CreatePaymentIntentDto {
   @MaxLength(22) // Stripe enforces 22-character limit
   @Matches(/^[a-zA-Z0-9 ]*$/, { message: 'statementDescriptor must contain only letters, numbers, and spaces' })
   statementDescriptor?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  paymentMethodTypes?: string[];
 
   @IsOptional()
   @IsObject()

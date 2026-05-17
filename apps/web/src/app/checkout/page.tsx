@@ -1,26 +1,22 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { createPaymentIntent } from '@/actions/payment-intents';
 import { StripeProvider } from '@/components/stripe/StripeProvider';
 import { CheckoutForm } from '@/components/checkout/CheckoutForm';
 import { AmountEntryForm } from '@/components/checkout/AmountEntryForm';
 import { useMyCustomer } from '@/features/customers/customers.hooks';
 
-type Step = 'amount' | 'payment';
+type Step = 'select' | 'payment';
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const { data: myCustomer, isPending: isLoadingCustomer } = useMyCustomer();
   const customerId = myCustomer?.id;
 
-  const defaultAmount = parseDefaultAmount(searchParams.get('amount'));
-  const defaultCurrency = parseDefaultCurrency(searchParams.get('currency'));
-
-  const [step, setStep] = useState<Step>('amount');
+  const [step, setStep] = useState<Step>('select');
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [amount, setAmount] = useState(0);
   const [currency, setCurrency] = useState('usd');
@@ -44,9 +40,10 @@ export default function CheckoutPage() {
     return null;
   }
 
-  const handleAmountSubmit = async (data: {
+  const handleSubmit = async (data: {
     amount: number;
     currency: string;
+    paymentMethodType: string;
     savePaymentMethod: boolean;
   }) => {
     setError(null);
@@ -57,6 +54,7 @@ export default function CheckoutPage() {
         amount: data.amount,
         currency: data.currency,
         customerId,
+        paymentMethodTypes: [data.paymentMethodType],
         setupFutureUsage: data.savePaymentMethod ? 'off_session' : undefined,
       });
       setAmount(data.amount);
@@ -71,7 +69,7 @@ export default function CheckoutPage() {
   };
 
   const handleBack = () => {
-    setStep('amount');
+    setStep('select');
     setClientSecret(null);
     setError(null);
   };
@@ -80,7 +78,7 @@ export default function CheckoutPage() {
     <div className="max-w-lg mx-auto">
       <div className="card">
         <h1 className="text-2xl font-semibold text-zinc-100 tracking-tight mb-6">
-          {step === 'amount' ? 'Checkout' : 'Complete Payment'}
+          {step === 'select' ? 'Checkout' : 'Complete Payment'}
         </h1>
 
         {error && (
@@ -89,12 +87,10 @@ export default function CheckoutPage() {
           </div>
         )}
 
-        {step === 'amount' && (
+        {step === 'select' && (
           <AmountEntryForm
-            onSubmit={handleAmountSubmit}
+            onSubmit={handleSubmit}
             isLoading={isCreatingPI}
-            defaultAmount={defaultAmount}
-            defaultCurrency={defaultCurrency}
           />
         )}
 
@@ -106,15 +102,4 @@ export default function CheckoutPage() {
       </div>
     </div>
   );
-}
-
-function parseDefaultAmount(raw: string | null): number | undefined {
-  if (!raw || !/^\d+$/.test(raw)) return undefined;
-  const n = parseInt(raw, 10);
-  return n >= 50 ? n : undefined;
-}
-
-function parseDefaultCurrency(raw: string | null): string | undefined {
-  if (!raw || !/^[a-z]{3}$/.test(raw)) return undefined;
-  return raw;
 }
