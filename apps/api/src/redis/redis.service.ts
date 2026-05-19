@@ -5,6 +5,7 @@ import Redis from 'ioredis';
 export const CacheKeys = {
   customer: (id: string) => `customer:${id}`,
   customerByStripe: (stripeId: string) => `customer:stripe:${stripeId}`,
+  customerByUserId: (userId: string) => `customer:user:${userId}`,
   plans: (activeOnly: boolean) => `plans:${activeOnly ? 'active' : 'all'}`,
 };
 

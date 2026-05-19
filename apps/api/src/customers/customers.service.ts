@@ -81,9 +81,15 @@ export class CustomersService {
   }
 
   async findByUserId(userId: string): Promise<StripeCustomer | null> {
+    const cached = await this.redis.get<StripeCustomer>(CacheKeys.customerByUserId(userId));
+    if (cached) return cached;
+
     const customer = await this.repo.findByUserId(userId);
     if (!customer) return null;
-    return this.findById(customer.id);
+
+    const full = await this.findById(customer.id);
+    await this.redis.set(CacheKeys.customerByUserId(userId), full, CacheTtl.CUSTOMER);
+    return full;
   }
 
   async findById(id: string): Promise<StripeCustomer> {
@@ -156,6 +162,7 @@ export class CustomersService {
     await this.redis.del(
       CacheKeys.customer(id),
       CacheKeys.customerByStripe(customer.stripeCustomerId),
+      CacheKeys.customerByUserId(customer.userId!),
     );
     return this.findById(id);
   }
@@ -167,6 +174,7 @@ export class CustomersService {
     await this.redis.del(
       CacheKeys.customer(id),
       CacheKeys.customerByStripe(customer.stripeCustomerId),
+      CacheKeys.customerByUserId(customer.userId!),
     );
     this.logger.log({ message: 'Customer soft deleted', customerId: id });
   }
@@ -222,6 +230,7 @@ export class CustomersService {
     await this.redis.del(
       CacheKeys.customer(customer.id),
       CacheKeys.customerByStripe(stripeCustomerId),
+      CacheKeys.customerByUserId(customer.userId!),
     );
     return this.findById(customer.id);
   }

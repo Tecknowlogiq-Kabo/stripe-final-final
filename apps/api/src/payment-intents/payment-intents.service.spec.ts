@@ -11,7 +11,8 @@ describe('PaymentIntentsService', () => {
   let service: PaymentIntentsService;
   let repoMock: Record<string, jest.Mock>;
   let mockStripe: ReturnType<typeof createMockStripe>;
-  let findByIdMock: jest.Mock;
+  let findByUserIdMock: jest.Mock;
+  let createCustomerMock: jest.Mock;
 
   beforeEach(async () => {
     repoMock = {
@@ -25,14 +26,18 @@ describe('PaymentIntentsService', () => {
       updateStatus: jest.fn(),
     };
     mockStripe = createMockStripe();
-    findByIdMock = jest.fn();
+    findByUserIdMock = jest.fn();
+    createCustomerMock = jest.fn();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PaymentIntentsService,
         { provide: PaymentIntentsRepository, useValue: repoMock },
         { provide: StripeService, useValue: mockStripe },
-        { provide: CustomersService, useValue: { findById: findByIdMock } },
+        { provide: CustomersService, useValue: {
+          findByUserId: findByUserIdMock,
+          create: createCustomerMock,
+        } },
       ],
     }).compile();
 
@@ -43,11 +48,12 @@ describe('PaymentIntentsService', () => {
     const dto = {
       amount: 2000,
       currency: 'usd',
-      customerId: 'cust-uuid',
       paymentMethodId: TEST_PAYMENT_METHODS.visa,
       description: 'Test payment',
     };
     const idempotencyKey = 'idem-key-1';
+    const userId = 'user-1';
+    const userEmail = 'owner@example.com';
 
     it('returns cached payment intent when idempotency key matches', async () => {
       repoMock.findByIdempotencyKey.mockResolvedValueOnce({
@@ -57,14 +63,14 @@ describe('PaymentIntentsService', () => {
         status: 'succeeded',
       });
 
-      const result = await service.create(dto, idempotencyKey);
+      const result = await service.create(dto, idempotencyKey, userId, userEmail);
 
       expect(result.id).toBe('pi-local-1');
       expect(mockStripe.paymentIntents.create).not.toHaveBeenCalled();
     });
 
-    it('creates Stripe payment intent and stores locally', async () => {
-      findByIdMock.mockResolvedValueOnce({ id: 'cust-uuid', stripeCustomerId: 'cus_stripe1' });
+    it('auto-resolves existing customer and creates payment intent', async () => {
+      findByUserIdMock.mockResolvedValueOnce({ id: 'cust-uuid', stripeCustomerId: 'cus_stripe1' });
       repoMock.findByIdempotencyKey.mockResolvedValueOnce(null);
 
       mockStripe.paymentIntents.create.mockResolvedValueOnce({
@@ -87,8 +93,9 @@ describe('PaymentIntentsService', () => {
         status: 'requires_payment_method',
       });
 
-      const result = await service.create(dto, idempotencyKey);
+      const result = await service.create(dto, idempotencyKey, userId, userEmail);
 
+      expect(findByUserIdMock).toHaveBeenCalledWith(userId);
       expect(mockStripe.paymentIntents.create).toHaveBeenCalledWith(
         expect.objectContaining({ amount: 2000, currency: 'usd', customer: 'cus_stripe1' }),
         { idempotencyKey },
@@ -96,15 +103,54 @@ describe('PaymentIntentsService', () => {
       expect(result.stripePaymentIntentId).toBe('pi_stripe_new');
     });
 
+    it('auto-creates customer when user has none and creates payment intent', async () => {
+      findByUserIdMock.mockResolvedValueOnce(null);
+      createCustomerMock.mockResolvedValueOnce({ id: 'cust-new', stripeCustomerId: 'cus_stripe_new' });
+      repoMock.findByIdempotencyKey.mockResolvedValueOnce(null);
+
+      mockStripe.paymentIntents.create.mockResolvedValueOnce({
+        id: 'pi_stripe_auto',
+        client_secret: 'pi_secret_auto',
+        status: 'requires_payment_method',
+        amount: 2000,
+        currency: 'usd',
+        payment_method_types: ['card'],
+        amount_received: null,
+        amount_capturable: null,
+        next_action: null,
+        livemode: false,
+      } as any);
+
+      repoMock.insert.mockResolvedValueOnce({
+        id: 'pi-local-auto',
+        clientSecret: 'pi_secret_auto',
+        stripePaymentIntentId: 'pi_stripe_auto',
+        status: 'requires_payment_method',
+      });
+
+      const result = await service.create(dto, idempotencyKey, userId, userEmail);
+
+      expect(createCustomerMock).toHaveBeenCalledWith(
+        { email: userEmail },
+        idempotencyKey,
+        userId,
+      );
+      expect(mockStripe.paymentIntents.create).toHaveBeenCalledWith(
+        expect.objectContaining({ customer: 'cus_stripe_new' }),
+        { idempotencyKey },
+      );
+      expect(result.stripePaymentIntentId).toBe('pi_stripe_auto');
+    });
+
     it('throws when Stripe PaymentIntent is missing client_secret', async () => {
-      findByIdMock.mockResolvedValueOnce({ id: 'cust-uuid', stripeCustomerId: 'cus_stripe1' });
+      findByUserIdMock.mockResolvedValueOnce({ id: 'cust-uuid', stripeCustomerId: 'cus_stripe1' });
       repoMock.findByIdempotencyKey.mockResolvedValueOnce(null);
       mockStripe.paymentIntents.create.mockResolvedValueOnce({
         id: 'pi_no_secret',
         client_secret: null,
       } as any);
 
-      await expect(service.create(dto, idempotencyKey)).rejects.toThrow('missing client_secret');
+      await expect(service.create(dto, idempotencyKey, userId, userEmail)).rejects.toThrow('missing client_secret');
     });
   });
 

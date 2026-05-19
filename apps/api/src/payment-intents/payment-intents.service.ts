@@ -25,6 +25,8 @@ export class PaymentIntentsService {
   async create(
     dto: CreatePaymentIntentDto,
     idempotencyKey: string,
+    userId: string,
+    userEmail: string,
   ): Promise<{ id: string; clientSecret: string; stripePaymentIntentId: string; status: string }> {
     const existing = await this.repo.findByIdempotencyKey(idempotencyKey);
     if (existing) {
@@ -37,14 +39,18 @@ export class PaymentIntentsService {
       };
     }
 
-    let stripeCustomerId: string | undefined;
-    let internalCustomerId: string | undefined;
-
-    if (dto.customerId) {
-      const customer = await this.customersService.findById(dto.customerId);
-      stripeCustomerId = customer.stripeCustomerId;
-      internalCustomerId = customer.id;
+    // Auto-resolve or create customer for this user
+    let customer = await this.customersService.findByUserId(userId);
+    if (!customer) {
+      customer = await this.customersService.create(
+        { email: userEmail },
+        idempotencyKey,
+        userId,
+      );
     }
+
+    const stripeCustomerId = customer.stripeCustomerId;
+    const internalCustomerId = customer.id;
 
     const paymentMethodConfig = dto.paymentMethodTypes?.length
       ? { payment_method_types: dto.paymentMethodTypes }
