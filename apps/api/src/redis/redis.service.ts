@@ -63,24 +63,54 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Atomic increment; returns the new value. Used by throttler. */
+  /**
+   * Atomic increment; returns the new value. Used by throttler.
+   * Fail-open: returns 0 on Redis failure so throttler allows requests through.
+   */
   async incr(key: string): Promise<number> {
-    return this.client.incr(key);
+    try {
+      return await this.client.incr(key);
+    } catch (err) {
+      this.logger.error({ message: 'Redis incr failed, failing open (returning 0)', key, err });
+      return 0;
+    }
   }
 
-  /** Returns TTL in seconds; -1 if no expiry, -2 if key missing. */
+  /**
+   * Returns TTL in seconds; -1 if no expiry, -2 if key missing.
+   * Fail-open: returns -2 (key missing) on Redis failure so throttler treats as no existing hits.
+   */
   async ttl(key: string): Promise<number> {
-    return this.client.ttl(key);
+    try {
+      return await this.client.ttl(key);
+    } catch (err) {
+      this.logger.error({ message: 'Redis ttl failed, failing open (returning -2)', key, err });
+      return -2;
+    }
   }
 
-  /** Set expiry on an existing key (seconds). */
+  /**
+   * Set expiry on an existing key (seconds).
+   * Fail-open: silently skips on Redis failure — throttler will retry on next request.
+   */
   async expire(key: string, seconds: number): Promise<void> {
-    await this.client.expire(key, seconds);
+    try {
+      await this.client.expire(key, seconds);
+    } catch (err) {
+      this.logger.error({ message: 'Redis expire failed, skipping', key, seconds, err });
+    }
   }
 
-  /** SETEX — set value with TTL in one atomic call. */
+  /**
+   * SETEX — set value with TTL in one atomic call.
+   * Fail-open: silently skips on Redis failure — throttler will retry on next request.
+   */
   async setWithExpiry(key: string, value: string, ttlSeconds: number): Promise<void> {
-    await this.client.setex(key, ttlSeconds, value);
+    try {
+      await this.client.setex(key, ttlSeconds, value);
+    } catch (err) {
+      this.logger.error({ message: 'Redis setex failed, skipping', key, ttlSeconds, err });
+    }
   }
 
   async ping(): Promise<string> {

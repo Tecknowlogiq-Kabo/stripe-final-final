@@ -42,12 +42,13 @@ export class CustomerHandler {
       case 'customer.deleted':
         try {
           const localCustomer = await this.customersService.findByStripeId(customer.id);
-          // Mark as deleted locally
-          localCustomer.isDeleted = true;
-          // Note: using internal method directly since this is a sync operation
+          // syncSoftDelete does DB + cache cleanup without calling stripe.customers.del()
+          // (the customer is already deleted in Stripe, which would 404)
+          await this.customersService.syncSoftDelete(localCustomer.id);
           this.logger.log({
-            message: 'Customer deleted in Stripe, marking locally',
+            message: 'Customer deleted — synced to local DB',
             stripeCustomerId: customer.id,
+            localCustomerId: localCustomer.id,
           });
         } catch {
           // Customer not in our DB — nothing to do

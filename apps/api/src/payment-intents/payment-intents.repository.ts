@@ -3,6 +3,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { StripePaymentIntent } from '../entities/stripe-payment-intent.entity';
 import { StripeCustomer } from '../entities/stripe-customer.entity';
+import { withTransaction } from '../database/transaction.helper';
 import { PI_SELECT, CUSTOMER_SELECT } from '../database/query-constants';
 
 @Injectable()
@@ -118,18 +119,14 @@ export class PaymentIntentsRepository {
     amountCapturable: number | null,
     nextAction: string | null,
     livemode: number,
-  ): Promise<StripePaymentIntent> {
-    await this.dataSource.query(
-      `INSERT INTO STRIPE_PAYMENT_INTENTS (ID, STRIPE_PI_ID, AMOUNT, CURRENCY, STATUS, CLIENT_SECRET, CUSTOMER_ID, STRIPE_PM_ID, IDEMPOTENCY_KEY, METADATA, DESCRIPTION, SETUP_FUTURE_USAGE, PAYMENT_METHOD_TYPES, AMOUNT_RECEIVED, AMOUNT_CAPTURABLE, NEXT_ACTION, LIVEMODE, CREATED_AT, UPDATED_AT)
-       VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, :14, :15, :16, :17, SYSDATE, SYSDATE)`,
-      [id, stripeId, amount, currency, status, clientSecret, customerId, paymentMethodId, idempotencyKey, metadata, description, setupFutureUsage, paymentMethodTypes, amountReceived, amountCapturable, nextAction, livemode],
-    );
-
-    const [saved] = await this.dataSource.query<StripePaymentIntent[]>(
-      `SELECT ${PI_SELECT} FROM STRIPE_PAYMENT_INTENTS WHERE ID = :1`,
-      [id],
-    );
-    return saved;
+  ): Promise<void> {
+    await withTransaction(this.dataSource, async (runner) => {
+      await runner.query(
+        `INSERT INTO STRIPE_PAYMENT_INTENTS (ID, STRIPE_PI_ID, AMOUNT, CURRENCY, STATUS, CLIENT_SECRET, CUSTOMER_ID, STRIPE_PM_ID, IDEMPOTENCY_KEY, METADATA, DESCRIPTION, SETUP_FUTURE_USAGE, PAYMENT_METHOD_TYPES, AMOUNT_RECEIVED, AMOUNT_CAPTURABLE, NEXT_ACTION, LIVEMODE, CREATED_AT, UPDATED_AT)
+         VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, :13, :14, :15, :16, :17, SYSDATE, SYSDATE)`,
+        [id, stripeId, amount, currency, status, clientSecret, customerId, paymentMethodId, idempotencyKey, metadata, description, setupFutureUsage, paymentMethodTypes, amountReceived, amountCapturable, nextAction, livemode],
+      );
+    });
   }
 
   async updateMetadata(id: string, metadata: string | null, description: string | null): Promise<void> {

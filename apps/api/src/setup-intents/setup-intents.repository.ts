@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { StripeSetupIntent } from '../entities/stripe-setup-intent.entity';
 import { StripeCustomer } from '../entities/stripe-customer.entity';
 import { SI_SELECT, CUSTOMER_SELECT } from '../database/query-constants';
+import { withTransaction } from '../database/transaction.helper';
 
 @Injectable()
 export class SetupIntentsRepository {
@@ -57,18 +58,14 @@ export class SetupIntentsRepository {
     paymentMethodTypes: string | null,
     nextAction: string | null,
     livemode: number,
-  ): Promise<StripeSetupIntent> {
-    await this.dataSource.query(
-      `INSERT INTO STRIPE_SETUP_INTENTS (ID, STRIPE_SI_ID, STATUS, CLIENT_SECRET, CUSTOMER_ID, IDEMPOTENCY_KEY, METADATA, DESCRIPTION, USAGE, PAYMENT_METHOD_TYPES, NEXT_ACTION, LIVEMODE, CREATED_AT, UPDATED_AT)
-       VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, SYSDATE, SYSDATE)`,
-      [id, stripeId, status, clientSecret, customerId, idempotencyKey, metadata, description, usage, paymentMethodTypes, nextAction, livemode],
-    );
-
-    const [saved] = await this.dataSource.query<StripeSetupIntent[]>(
-      `SELECT ${SI_SELECT} FROM STRIPE_SETUP_INTENTS WHERE ID = :1`,
-      [id],
-    );
-    return saved;
+  ): Promise<void> {
+    await withTransaction(this.dataSource, async (runner) => {
+      await runner.query(
+        `INSERT INTO STRIPE_SETUP_INTENTS (ID, STRIPE_SI_ID, STATUS, CLIENT_SECRET, CUSTOMER_ID, IDEMPOTENCY_KEY, METADATA, DESCRIPTION, USAGE, PAYMENT_METHOD_TYPES, NEXT_ACTION, LIVEMODE, CREATED_AT, UPDATED_AT)
+         VALUES (:1, :2, :3, :4, :5, :6, :7, :8, :9, :10, :11, :12, SYSDATE, SYSDATE)`,
+        [id, stripeId, status, clientSecret, customerId, idempotencyKey, metadata, description, usage, paymentMethodTypes, nextAction, livemode],
+      );
+    });
   }
 
   async updateStatus(

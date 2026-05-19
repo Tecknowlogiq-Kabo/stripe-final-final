@@ -11,6 +11,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { PaymentMethodsService } from './payment-methods.service';
 import { CustomersService } from '../customers/customers.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -35,6 +36,7 @@ export class PaymentMethodsController {
 
   @Post(':id/set-default/customer/:customerId')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ payment: { limit: 20, ttl: 60_000 } })
   async setDefault(
     @Param('customerId', ParseUUIDPipe) customerId: string,
     @Param('id', ParseUUIDPipe) paymentMethodId: string,

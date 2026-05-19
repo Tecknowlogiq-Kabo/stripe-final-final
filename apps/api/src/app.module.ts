@@ -5,10 +5,11 @@ import {
   RequestMethod,
 } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { RolesGuard } from './auth/guards/roles.guard';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation.schema';
 import { PinoLoggerModule } from './logging/logger.module';
@@ -22,12 +23,17 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { ReportingModule } from './reporting/reporting.module';
 import { HealthModule } from './health/health.module';
+import { MetricsModule } from './metrics/metrics.module';
+import { AuditModule } from './audit/audit.module';
 import { RedisModule } from './redis/redis.module';
 import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
 import { StripeExceptionFilter } from './common/filters/stripe-exception.filter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { RequestTimeoutMiddleware } from './common/middleware/request-timeout.middleware';
+import { MetricsInterceptor } from './common/interceptors/metrics.interceptor';
+import { AuditInterceptor } from './common/interceptors/audit.interceptor';
+import { PerUserThrottlerGuard } from './common/guards/per-user-throttler.guard';
 
 @Module({
   imports: [
@@ -76,14 +82,22 @@ import { RequestTimeoutMiddleware } from './common/middleware/request-timeout.mi
     WebhooksModule,
     ReportingModule,
     HealthModule,
+    MetricsModule,
+    AuditModule,
   ],
   providers: [
     // Order matters: more specific filters first
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_FILTER, useClass: StripeExceptionFilter },
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: PerUserThrottlerGuard },
     // JWT guard runs globally; use @Public() to opt out on specific routes
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Role-based authorization guard; use @Roles(ADMIN) to restrict endpoints
+    { provide: APP_GUARD, useClass: RolesGuard },
+    // Metrics interceptor — records request duration + error counts per route
+    { provide: APP_INTERCEPTOR, useClass: MetricsInterceptor },
+    // Audit interceptor — records mutations on @Audit()-decorated handlers
+    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],
 })
 export class AppModule implements NestModule {

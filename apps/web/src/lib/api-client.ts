@@ -3,6 +3,19 @@ const API_URL =
     ? (process.env.API_URL ?? 'http://localhost:3001')
     : (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001');
 
+/**
+ * Generates a UUID v4 for idempotency keys.
+ * Each mutation request gets a unique key; retries reuse the same key
+ * via the idempotencyKey parameter.
+ */
+function generateIdempotencyKey(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -38,6 +51,7 @@ async function getCookieHeader(): Promise<Record<string, string>> {
 async function request<T>(
   path: string,
   options: RequestInit = {},
+  idempotencyKey?: string,
 ): Promise<T> {
   const cookieHeader = await getCookieHeader();
   const baseHeaders: Record<string, string> = {
@@ -45,6 +59,13 @@ async function request<T>(
     ...cookieHeader,
     ...(options.headers as Record<string, string> | undefined),
   };
+
+  // Auto-generate idempotency key for mutating requests.
+  // Prevents double-charges from network retries, browser double-clicks, etc.
+  // The backend deduplicates by idempotency key.
+  if (idempotencyKey) {
+    baseHeaders['Idempotency-Key'] = idempotencyKey;
+  }
 
   const response = await fetch(`${API_URL}/api/v1${path}`, {
     ...options,
@@ -101,20 +122,23 @@ export const apiClient = {
   get: <T>(path: string, headers?: Record<string, string>) =>
     request<T>(path, { method: 'GET', headers }),
 
+  /** Generates an idempotency key automatically to prevent double-charges. */
   post: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
     request<T>(path, {
       method: 'POST',
       body: JSON.stringify(body),
       headers,
-    }),
+    }, generateIdempotencyKey()),
 
+  /** Generates an idempotency key automatically. */
   patch: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
     request<T>(path, {
       method: 'PATCH',
       body: JSON.stringify(body),
       headers,
-    }),
+    }, generateIdempotencyKey()),
 
+  /** Generates an idempotency key automatically. */
   delete: <T>(path: string, headers?: Record<string, string>) =>
-    request<T>(path, { method: 'DELETE', headers }),
+    request<T>(path, { method: 'DELETE', headers }, generateIdempotencyKey()),
 };

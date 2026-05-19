@@ -21,6 +21,7 @@ import { UpdatePaymentIntentDto } from './dto/update-payment-intent.dto';
 import { ListPaymentIntentsDto } from './dto/list-payment-intents.dto';
 import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator';
 import { CurrentUser, JwtUser } from '../auth/decorators/current-user.decorator';
+import { Audit } from '../audit/audit.decorator';
 import { StripePaymentIntent } from '../entities/stripe-payment-intent.entity';
 
 function toPublicPaymentIntent(pi: StripePaymentIntent) {
@@ -49,6 +50,7 @@ export class PaymentIntentsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @Throttle({ payment: { limit: 20, ttl: 60_000 } })
+  @Audit({ action: 'payment.create', resourceType: 'payment-intent', resourceIdPath: 'id' })
   async create(
     @Body() dto: CreatePaymentIntentDto,
     @IdempotencyKey() idempotencyKey: string,

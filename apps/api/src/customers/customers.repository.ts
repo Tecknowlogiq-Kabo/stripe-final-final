@@ -38,6 +38,15 @@ export class CustomersRepository {
     return row ?? null;
   }
 
+  /** Find a customer by ID regardless of IS_DELETED flag. Used by webhook sync handlers. */
+  async findByIdWithoutDeleted(id: string): Promise<StripeCustomer | null> {
+    const [row] = await this.dataSource.query<StripeCustomer[]>(
+      `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE ID = :1`,
+      [id],
+    );
+    return row ?? null;
+  }
+
   async findByUserId(userId: string): Promise<StripeCustomer | null> {
     const [row] = await this.dataSource.query<StripeCustomer[]>(
       `SELECT ${CUSTOMER_SELECT} FROM STRIPE_CUSTOMERS WHERE USER_ID = :1 AND IS_DELETED = 0 AND ROWNUM = 1`,

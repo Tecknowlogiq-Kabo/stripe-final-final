@@ -21,6 +21,7 @@ import { Throttle } from '@nestjs/throttler';
 import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { CurrentUser, JwtUser } from '../auth/decorators/current-user.decorator';
+import { Audit } from '../audit/audit.decorator';
 import { CacheKeys } from '../redis/redis.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -52,6 +53,7 @@ export class SubscriptionsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @Throttle({ payment: { limit: 20, ttl: 60_000 } })
+  @Audit({ action: 'subscription.create', resourceType: 'subscription', resourceIdPath: 'id' })
   async create(
     @Body() dto: CreateSubscriptionDto,
     @IdempotencyKey() idempotencyKey: string,
@@ -95,6 +97,7 @@ export class SubscriptionsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
+  @Audit({ action: 'subscription.cancel', resourceType: 'subscription', resourceIdPath: 'id' })
   async cancel(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: JwtUser,

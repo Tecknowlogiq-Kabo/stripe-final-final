@@ -6,14 +6,18 @@ import {
   UseGuards,
   Logger,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import Stripe from 'stripe';
 import { WebhooksService } from './webhooks.service';
 import { WebhookSignatureGuard } from '../common/guards/webhook-signature.guard';
 import { StripeEvent } from '../common/decorators/stripe-event.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 
-// Webhook endpoints must NOT be rate-limited (Stripe needs guaranteed delivery)
-// The global ThrottlerGuard is bypassed here because WebhookSignatureGuard runs first
+// Webhook endpoints must NOT be rate-limited.
+// Stripe requires guaranteed delivery — rate limiting can cause 429s,
+// which Stripe interprets as transient failures and retries up to 3 days before disabling the endpoint.
+// @SkipThrottle() explicitly opts this controller out of the global ThrottlerGuard.
+@SkipThrottle()
 @Controller('webhooks')
 export class WebhooksController {
   private readonly logger = new Logger(WebhooksController.name);

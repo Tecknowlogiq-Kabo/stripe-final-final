@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, InternalServerErrorException, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { StripeSetupIntent } from '../entities/stripe-setup-intent.entity';
 import { StripeService } from '../stripe/stripe.service';
@@ -32,59 +32,85 @@ export class SetupIntentsService {
 
     const customer = await this.customersService.findById(dto.customerId);
 
-    const stripeSI = await this.stripeService.setupIntents.create(
-      {
-        customer: customer.stripeCustomerId,
-        ...(dto.paymentMethodTypes?.length
-          ? { payment_method_types: dto.paymentMethodTypes }
-          : { automatic_payment_methods: { enabled: true } }),
-        usage: dto.usage ?? 'off_session',
-        metadata: {
-          ...dto.metadata,
-          internal_customer_id: customer.id,
+    let stripeSI;
+    try {
+      stripeSI = await this.stripeService.setupIntents.create(
+        {
+          customer: customer.stripeCustomerId,
+          ...(dto.paymentMethodTypes?.length
+            ? { payment_method_types: dto.paymentMethodTypes }
+            : { automatic_payment_methods: { enabled: true } }),
+          usage: dto.usage ?? 'off_session',
+          metadata: {
+            ...dto.metadata,
+            internal_customer_id: customer.id,
+          },
+          description: dto.description,
         },
-        description: dto.description,
-      },
-      { idempotencyKey },
-    );
-
-    this.logger.log({
-      message: 'SetupIntent created',
-      stripeSetupIntentId: stripeSI.id,
-      customerId: customer.id,
-    });
+        { idempotencyKey },
+      );
+    } catch (stripeError) {
+      this.logger.error({
+        message: 'Stripe SetupIntent creation failed',
+        stripeError: stripeError instanceof Error ? stripeError.message : String(stripeError),
+        idempotencyKey,
+      });
+      throw stripeError;
+    }
 
     const clientSecret = stripeSI.client_secret;
     if (!clientSecret) {
-      throw new Error(`SetupIntent ${stripeSI.id} missing client_secret`);
+      await this.stripeService.setupIntents.cancel(stripeSI.id);
+      throw new InternalServerErrorException(
+        `SetupIntent ${stripeSI.id} missing client_secret`,
+      );
     }
 
     const id = randomUUID();
-    const saved = await this.repo.insert(
-      id,
-      stripeSI.id,
-      stripeSI.status,
-      clientSecret,
-      customer.id,
-      idempotencyKey,
-      dto.metadata ? JSON.stringify(dto.metadata) : null,
-      dto.description ?? null,
-      dto.usage ?? 'off_session',
-      stripeSI.payment_method_types
-        ? JSON.stringify(stripeSI.payment_method_types)
-        : null,
-      stripeSI.next_action
-        ? JSON.stringify(stripeSI.next_action)
-        : null,
-      stripeSI.livemode ? 1 : 0,
-    );
+    try {
+      await this.repo.insert(
+        id,
+        stripeSI.id,
+        stripeSI.status,
+        clientSecret,
+        customer.id,
+        idempotencyKey,
+        dto.metadata ? JSON.stringify(dto.metadata) : null,
+        dto.description ?? null,
+        dto.usage ?? 'off_session',
+        stripeSI.payment_method_types
+          ? JSON.stringify(stripeSI.payment_method_types)
+          : null,
+        stripeSI.next_action
+          ? JSON.stringify(stripeSI.next_action)
+          : null,
+        stripeSI.livemode ? 1 : 0,
+      );
 
-    return {
-      id: saved.id,
-      clientSecret: saved.clientSecret,
-      stripeSetupIntentId: saved.stripeSetupIntentId,
-      status: saved.status,
-    };
+      this.logger.log({
+        message: 'SetupIntent created and saved',
+        stripeSetupIntentId: stripeSI.id,
+        customerId: customer.id,
+      });
+
+      return {
+        id,
+        clientSecret,
+        stripeSetupIntentId: stripeSI.id,
+        status: stripeSI.status,
+      };
+    } catch (dbError) {
+      // Stripe resource exists but DB insert failed → cancel the Stripe SI to avoid orphans
+      this.logger.error({
+        message: 'DB insert failed after Stripe SI created — cancelling Stripe SI',
+        stripeSetupIntentId: stripeSI.id,
+        dbError: dbError instanceof Error ? dbError.message : String(dbError),
+      });
+      await this.stripeService.setupIntents.cancel(stripeSI.id);
+      throw new InternalServerErrorException(
+        'Failed to save setup intent — the intent has been voided. Please try again.',
+      );
+    }
   }
 
   async findById(id: string): Promise<StripeSetupIntent> {

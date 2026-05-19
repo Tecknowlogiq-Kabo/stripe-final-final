@@ -17,6 +17,9 @@ const nextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // Blocks DOM XSS sinks (innerHTML, etc.) regardless of CSP script-src.
+          // Compensating control for the unsafe-inline required by Next.js chunk loading.
+          { key: 'Trusted-Types', value: "require-trusted-types-for 'script'" },
           {
             key: 'Strict-Transport-Security',
             value: 'max-age=63072000; includeSubDomains; preload',

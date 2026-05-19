@@ -18,6 +18,7 @@ import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator';
 import { CurrentUser, JwtUser } from '../auth/decorators/current-user.decorator';
 import { CustomersService } from '../customers/customers.service';
 import { StripeSetupIntent } from '../entities/stripe-setup-intent.entity';
+import { Audit } from '../audit/audit.decorator';
 
 function toPublicSetupIntent(si: StripeSetupIntent) {
   return {
@@ -46,6 +47,7 @@ export class SetupIntentsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @Throttle({ payment: { limit: 20, ttl: 60_000 } })
+  @Audit({ action: 'setup-intent.create', resourceType: 'setup-intent', resourceIdPath: 'id' })
   async create(
     @Body() dto: CreateSetupIntentDto,
     @IdempotencyKey() idempotencyKey: string,

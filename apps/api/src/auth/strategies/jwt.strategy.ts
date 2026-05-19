@@ -3,10 +3,12 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
+import { UserRole } from '../../entities/user.entity';
 
 export interface JwtPayload {
   sub: string;
   email: string;
+  role: UserRole;
 }
 
 const cookieExtractor = (req: Request): string | null => {
@@ -25,6 +27,6 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
   /** Returned value is attached to request.user */
   validate(payload: JwtPayload) {
-    return { id: payload.sub, email: payload.email };
+    return { id: payload.sub, email: payload.email, role: payload.role };
   }
 }

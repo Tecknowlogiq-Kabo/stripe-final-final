@@ -41,7 +41,7 @@ export class AuthController {
   }
 
   private clearAuthCookies(res: Response): void {
-    const options = { path: '/' };
+    const options = this.getCookieOptions();
     res.clearCookie('auth_token', options);
     res.clearCookie('refresh_token', options);
   }
@@ -68,6 +68,7 @@ export class AuthController {
 
   /** Exchange a valid refresh token for a new access + refresh token pair. */
   @Public()
+  @Throttle({ auth: { limit: 10, ttl: 60_000 } })
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {

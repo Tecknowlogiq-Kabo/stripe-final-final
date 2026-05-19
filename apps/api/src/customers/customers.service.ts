@@ -179,6 +179,26 @@ export class CustomersService {
     this.logger.log({ message: 'Customer soft deleted', customerId: id });
   }
 
+  /**
+   * Sync a deletion from Stripe webhook.
+   * Unlike softDelete(), this does NOT call stripe.customers.del()
+   * because the customer is already deleted in Stripe (which would 404).
+   */
+  async syncSoftDelete(id: string): Promise<void> {
+    const customer = await this.repo.findByIdWithoutDeleted(id);
+    if (!customer) {
+      this.logger.warn({ message: 'Customer not found for sync deletion (may already be deleted)', customerId: id });
+      return;
+    }
+    await this.repo.softDelete(id);
+    await this.redis.del(
+      CacheKeys.customer(id),
+      CacheKeys.customerByStripe(customer.stripeCustomerId),
+      CacheKeys.customerByUserId(customer.userId!),
+    );
+    this.logger.log({ message: 'Customer soft deleted via webhook sync', customerId: id, stripeCustomerId: customer.stripeCustomerId });
+  }
+
   async createCustomerSession(
     customerId: string,
   ): Promise<{ clientSecret: string }> {

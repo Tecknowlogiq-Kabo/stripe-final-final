@@ -18,6 +18,29 @@ export class InvoiceHandler {
     });
 
     switch (event.type) {
+      case 'invoice.created':
+        this.logger.log({
+          message: 'Invoice created',
+          stripeInvoiceId: invoice.id,
+          stripeCustomerId: invoice.customer,
+          stripeSubscriptionId: invoice.subscription,
+          amountDue: invoice.amount_due,
+          currency: invoice.currency,
+          status: invoice.status,
+        });
+        break;
+
+      case 'invoice.finalized':
+        this.logger.log({
+          message: 'Invoice finalized',
+          stripeInvoiceId: invoice.id,
+          stripeCustomerId: invoice.customer,
+          stripeSubscriptionId: invoice.subscription,
+          amountDue: invoice.amount_due,
+          currency: invoice.currency,
+        });
+        break;
+
       case 'invoice.payment_succeeded':
         if (invoice.subscription) {
           // Subscription payment succeeded — sync subscription status

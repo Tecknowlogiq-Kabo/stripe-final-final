@@ -1,6 +1,7 @@
 import {
   Injectable,
   NotFoundException,
+  InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
@@ -56,66 +57,92 @@ export class PaymentIntentsService {
       ? { payment_method_types: dto.paymentMethodTypes }
       : { automatic_payment_methods: { enabled: true } };
 
-    const stripePI = await this.stripeService.paymentIntents.create(
-      {
-        amount: dto.amount,
-        currency: dto.currency.toLowerCase(),
-        customer: stripeCustomerId,
-        payment_method: dto.paymentMethodId,
-        setup_future_usage: dto.setupFutureUsage,
-        receipt_email: dto.receiptEmail,
-        statement_descriptor: dto.statementDescriptor,
-        ...paymentMethodConfig,
-        metadata: { ...dto.metadata, ...(internalCustomerId ? { internal_customer_id: internalCustomerId } : {}) },
-        description: dto.description,
-      },
-      { idempotencyKey },
-    );
-
-    this.logger.log({
-      message: 'PaymentIntent created',
-      stripePaymentIntentId: stripePI.id,
-      amount: stripePI.amount,
-      currency: stripePI.currency,
-      customerId: internalCustomerId ?? 'guest',
-    });
+    let stripePI;
+    try {
+      stripePI = await this.stripeService.paymentIntents.create(
+        {
+          amount: dto.amount,
+          currency: dto.currency.toLowerCase(),
+          customer: stripeCustomerId,
+          payment_method: dto.paymentMethodId,
+          setup_future_usage: dto.setupFutureUsage,
+          receipt_email: dto.receiptEmail,
+          statement_descriptor: dto.statementDescriptor,
+          ...paymentMethodConfig,
+          metadata: { ...dto.metadata, ...(internalCustomerId ? { internal_customer_id: internalCustomerId } : {}) },
+          description: dto.description,
+        },
+        { idempotencyKey },
+      );
+    } catch (stripeError) {
+      this.logger.error({
+        message: 'Stripe PaymentIntent creation failed',
+        stripeError: stripeError instanceof Error ? stripeError.message : String(stripeError),
+        idempotencyKey,
+      });
+      throw stripeError;
+    }
 
     const clientSecret = stripePI.client_secret;
     if (!clientSecret) {
-      throw new Error(`PaymentIntent ${stripePI.id} missing client_secret`);
+      await this.stripeService.paymentIntents.cancel(stripePI.id);
+      throw new InternalServerErrorException(
+        `PaymentIntent ${stripePI.id} missing client_secret`,
+      );
     }
 
     const id = randomUUID();
-    const saved = await this.repo.insert(
-      id,
-      stripePI.id,
-      stripePI.amount,
-      stripePI.currency,
-      stripePI.status,
-      clientSecret,
-      internalCustomerId ?? null,
-      dto.paymentMethodId ?? null,
-      idempotencyKey,
-      dto.metadata ? JSON.stringify(dto.metadata) : null,
-      dto.description ?? null,
-      dto.setupFutureUsage ?? null,
-      stripePI.payment_method_types
-        ? JSON.stringify(stripePI.payment_method_types)
-        : null,
-      stripePI.amount_received ?? null,
-      stripePI.amount_capturable ?? null,
-      stripePI.next_action
-        ? JSON.stringify(stripePI.next_action)
-        : null,
-      stripePI.livemode ? 1 : 0,
-    );
+    try {
+      await this.repo.insert(
+        id,
+        stripePI.id,
+        stripePI.amount,
+        stripePI.currency,
+        stripePI.status,
+        clientSecret,
+        internalCustomerId ?? null,
+        dto.paymentMethodId ?? null,
+        idempotencyKey,
+        dto.metadata ? JSON.stringify(dto.metadata) : null,
+        dto.description ?? null,
+        dto.setupFutureUsage ?? null,
+        stripePI.payment_method_types
+          ? JSON.stringify(stripePI.payment_method_types)
+          : null,
+        stripePI.amount_received ?? null,
+        stripePI.amount_capturable ?? null,
+        stripePI.next_action
+          ? JSON.stringify(stripePI.next_action)
+          : null,
+        stripePI.livemode ? 1 : 0,
+      );
 
-    return {
-      id: saved.id,
-      clientSecret: saved.clientSecret,
-      stripePaymentIntentId: saved.stripePaymentIntentId,
-      status: saved.status,
-    };
+      this.logger.log({
+        message: 'PaymentIntent created and saved',
+        stripePaymentIntentId: stripePI.id,
+        amount: stripePI.amount,
+        currency: stripePI.currency,
+        customerId: internalCustomerId ?? 'guest',
+      });
+
+      return {
+        id,
+        clientSecret,
+        stripePaymentIntentId: stripePI.id,
+        status: stripePI.status,
+      };
+    } catch (dbError) {
+      // Stripe resource exists but DB insert failed → cancel the Stripe PI to avoid orphans
+      this.logger.error({
+        message: 'DB insert failed after Stripe PI created — cancelling Stripe PI',
+        stripePaymentIntentId: stripePI.id,
+        dbError: dbError instanceof Error ? dbError.message : String(dbError),
+      });
+      await this.stripeService.paymentIntents.cancel(stripePI.id);
+      throw new InternalServerErrorException(
+        'Failed to save payment intent — the payment has been voided. Please try again.',
+      );
+    }
   }
 
   async findById(id: string): Promise<StripePaymentIntent> {

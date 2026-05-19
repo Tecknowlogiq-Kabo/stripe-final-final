@@ -1,0 +1,103 @@
+# Production override — use with docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+version: '3.9'
+
+services:
+  oracle:
+    restart: unless-stopped
+    # Tune Oracle XE for production (default: 2GB PGA, 1GB SGA).
+    # These are conservative; adjust based on actual workload.
+    environment:
+      ORACLE_ALLOW_REMOTE: "true"
+    # Remove source-code mounts — production uses built images only
+    volumes:
+      - oracle_data_prod:/opt/oracle/oradata
+
+  redis:
+    restart: unless-stopped
+    volumes:
+      - redis_data_prod:/data
+    # Production-grade persistence:
+    #   appendonly yes  — AOF (every write logged for crash recovery)
+    #   appendfsync everysec — durability without latency penalty
+    #   maxmemory 256mb — prevent OOM on the host
+    #   maxmemory-policy allkeys-lru — evict least recently used keys
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+
+  api:
+    restart: unless-stopped
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: production
+    # Remove dev volume mounts — no source code in production
+    volumes: []
+    environment:
+      NODE_ENV: production
+      ORACLE_HOST: oracle
+      REDIS_URL: redis://redis:6379
+      # Override with real values via .env.prod
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    depends_on:
+      oracle:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Resource limits — tune based on load testing
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  web:
+    restart: unless-stopped
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      target: production
+    # Remove dev volume mounts
+    volumes: []
+    environment:
+      NODE_ENV: production
+      API_URL: http://api:3001
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://api.example.com}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
+    depends_on:
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  jaeger:
+    # Remove Jaeger from production — use Grafana Tempo or SigNoz instead.
+    # Kept here commented for reference:
+    # image: jaegertracing/all-in-one:1.62
+    profiles:
+      - observability
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+volumes:
+  oracle_data_prod:
+    driver: local
+  redis_data_prod:
+    driver: local

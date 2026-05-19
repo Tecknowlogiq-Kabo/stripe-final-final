@@ -1,6 +1,7 @@
 // MUST be first — patches Node.js internals before any other import
 import './instrumentation';
 
+import * as Sentry from '@sentry/node';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { ValidationPipe, VersioningType, ClassSerializerInterceptor } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -11,11 +12,10 @@ import * as express from 'express';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { SanitizeHtmlPipe } from './common/pipes/sanitize-html.pipe';
+import type { INestApplication } from '@nestjs/common';
 
-process.on('unhandledRejection', (reason) => {
-  console.error('Unhandled rejection', reason);
-  process.exit(1);
-});
+// Module-level reference so shutdown hooks can access the app instance
+let appRef: INestApplication | null = null;
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -29,6 +29,18 @@ async function bootstrap() {
   app.useLogger(app.get(Logger));
 
   const configService = app.get(ConfigService);
+
+  // Initialize Sentry if DSN is configured (gracefully no-ops otherwise)
+  const sentryDsn = configService.get<string>('sentry.dsn');
+  const nodeEnv = configService.get<string>('NODE_ENV') ?? 'development';
+  if (sentryDsn) {
+    Sentry.init({
+      dsn: sentryDsn,
+      environment: nodeEnv,
+      tracesSampleRate: nodeEnv === 'production' ? 0.1 : 1.0,
+    });
+  }
+
   const apiPrefix = configService.get<string>('apiPrefix') ?? 'api/v1';
   const port = configService.get<number>('port') ?? 3001;
   const corsOrigin = configService.get<string>('cors.origin') ?? 'http://localhost:3000';
@@ -112,6 +124,7 @@ async function bootstrap() {
   }
 
   const server = await app.listen(port);
+  appRef = app;
 
   // Keep-alive timeout must exceed the load balancer idle timeout (AWS ALB default: 60s)
   // Setting to 65s prevents premature connection termination under load
@@ -121,15 +134,33 @@ async function bootstrap() {
   const logger = app.get(Logger);
   logger.log(`Application running on port ${port}`, 'Bootstrap');
 
-  // Graceful shutdown — NestJS closes DB connections, pending requests, etc.
+  // Graceful shutdown — NestJS closes DB connections, drains pending requests, etc.
+  // Use app.close() to drain before exiting, preventing dropped requests.
   const gracefulShutdown = async (signal: string) => {
     logger.log(`${signal} received — shutting down gracefully`, 'Bootstrap');
+    appRef = null;
     await app.close();
     process.exit(0);
   };
 
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+  // Unhandled promise rejection — log and drain gracefully instead of instant kill.
+  // process.exit(1) in the old handler would kill the process mid-request,
+  // potentially corrupting in-flight Stripe operations.
+  process.on('unhandledRejection', async (reason) => {
+    logger.error({ message: 'Unhandled rejection — shutting down gracefully', reason }, 'Bootstrap');
+    try {
+      if (appRef) {
+        const app = appRef;
+        appRef = null;
+        await app.close();
+      }
+    } finally {
+      process.exit(1);
+    }
+  });
 }
 
 bootstrap().catch((err) => {

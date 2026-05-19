@@ -83,7 +83,16 @@ export class StripeService {
     payload: Buffer,
     signature: string,
     secret: string,
+    tolerance?: number,
   ): Stripe.Event {
-    return this.stripe.webhooks.constructEvent(payload, signature, secret);
+    // Default tolerance: 300 seconds (5 minutes). Stripe retries webhooks for up to
+    // 3 days, but each retry carries a fresh timestamp. Setting a shorter window
+    // (vs the SDK default) prevents replay attacks while tolerating clock skew.
+    return this.stripe.webhooks.constructEvent(
+      payload,
+      signature,
+      secret,
+      tolerance ?? 300,
+    );
   }
 }

@@ -19,6 +19,7 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator';
 import { CurrentUser, JwtUser } from '../auth/decorators/current-user.decorator';
 import { StripeCustomer } from '../entities/stripe-customer.entity';
+import { Audit } from '../audit/audit.decorator';
 
 @Controller('customers')
 export class CustomersController {
@@ -27,6 +28,7 @@ export class CustomersController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @Throttle({ payment: { limit: 20, ttl: 60_000 } })
+  @Audit({ action: 'customer.create', resourceType: 'customer', resourceIdPath: 'id' })
   create(
     @Body() dto: CreateCustomerDto,
     @IdempotencyKey() idempotencyKey: string,
@@ -64,6 +66,7 @@ export class CustomersController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @Audit({ action: 'customer.delete', resourceType: 'customer', resourceIdPath: 'id' })
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: JwtUser,

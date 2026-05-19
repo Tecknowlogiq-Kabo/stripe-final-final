@@ -95,7 +95,7 @@ describe('StripeService', () => {
 
     const result = service.constructWebhookEvent(payload, signature, secret);
 
-    expect(constructSpy).toHaveBeenCalledWith(payload, signature, secret);
+    expect(constructSpy).toHaveBeenCalledWith(payload, signature, secret, 300);
     expect(result).toBe(event);
   });
 });
