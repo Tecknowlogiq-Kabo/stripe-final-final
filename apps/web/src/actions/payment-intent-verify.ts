@@ -1,8 +1,6 @@
 'use server';
 
-import { cookies } from 'next/headers';
-
-const API_URL = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+import { apiClient, ApiError } from '@/lib/api-client';
 
 export interface PaymentIntentVerificationResult {
   status: 'succeeded' | 'processing' | 'failed' | 'pending' | 'unknown';
@@ -42,50 +40,18 @@ function buildRedirectFallback(
 
 /**
  * Verifies a PaymentIntent status server-side after a redirect.
- * This is the authoritative check — do not trust client-side redirect_status alone.
+ * Uses the shared api-client for automatic 401→refresh→retry.
+ * If the session is truly expired (refresh fails), falls back to
+ * redirect_status to provide the best possible answer.
  */
 export async function verifyPaymentIntent(
   stripePaymentIntentId: string,
   redirectStatus?: string | null,
 ): Promise<PaymentIntentVerificationResult> {
   try {
-    const jar = cookies();
-    const authToken = jar.get('auth_token')?.value;
-    const res = await fetch(
-      `${API_URL}/api/v1/payment-intents/stripe/${stripePaymentIntentId}`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authToken ? { Cookie: `auth_token=${authToken}` } : {}),
-        },
-        cache: 'no-store',
-      },
+    const data = await apiClient.get<Record<string, unknown>>(
+      `/payment-intents/stripe/${stripePaymentIntentId}`,
     );
-
-    if (!res.ok) {
-      if (res.status === 401) {
-        return buildRedirectFallback(stripePaymentIntentId, redirectStatus);
-      }
-
-      return {
-        status: 'unknown',
-        message: 'Unable to verify payment status. Please check your email for confirmation.',
-        paymentIntentId: stripePaymentIntentId,
-      };
-    }
-
-    const data = (await res.json().catch(() => null)) as Record<
-      string,
-      unknown
-    > | null;
-    if (!data) {
-      return {
-        status: 'unknown',
-        message: 'Unable to verify payment status. Please check your email for confirmation.',
-        paymentIntentId: stripePaymentIntentId,
-      };
-    }
 
     const status = data.status as string;
     const errorMessage = data.errorMessage as string | undefined;
@@ -119,7 +85,11 @@ export async function verifyPaymentIntent(
       message: `Your payment status is "${status}". Please check back later or contact support.`,
       paymentIntentId: stripePaymentIntentId,
     };
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      return buildRedirectFallback(stripePaymentIntentId, redirectStatus);
+    }
+
     return {
       status: 'unknown',
       message: 'Unable to verify payment status. Please check your email for confirmation.',

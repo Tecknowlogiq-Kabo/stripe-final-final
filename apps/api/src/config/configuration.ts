@@ -26,6 +26,10 @@ export default () => ({
   },
   jwt: {
     secret: process.env.JWT_SECRET,
+    // Previous secret — allows rotation without invalidating all active tokens.
+    // Set JWT_PREVIOUS_SECRET during rotation, remove 15 min later when all
+    // tokens signed with the old secret have expired.
+    previousSecret: process.env.JWT_PREVIOUS_SECRET,
     expiresIn: '15m',
   },
   redis: {
@@ -33,5 +37,8 @@ export default () => ({
   },
   sentry: {
     dsn: process.env.SENTRY_DSN,
+  },
+  encryption: {
+    key: process.env.ENCRYPTION_KEY,
   },
 });

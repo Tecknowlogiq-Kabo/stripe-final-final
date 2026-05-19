@@ -12,6 +12,7 @@ import { CustomerHandler } from './handlers/customer.handler';
 import { MandateHandler } from './handlers/mandate.handler';
 import { WEBHOOK_QUEUE } from './webhook-queue.constants';
 import { WebhooksRepository } from './webhooks.repository';
+import { EncryptionService } from '../crypto/encryption.service';
 
 type WebhookHandler = { handle: (event: Stripe.Event) => Promise<void> };
 
@@ -31,6 +32,7 @@ export class WebhooksService {
     private readonly paymentMethodHandler: PaymentMethodHandler,
     private readonly customerHandler: CustomerHandler,
     private readonly mandateHandler: MandateHandler,
+    private readonly encryption: EncryptionService,
   ) {
     this.handlerRegistry = new Map<string, WebhookHandler>([
       ['payment_intent.succeeded', paymentIntentHandler],
@@ -79,19 +81,21 @@ export class WebhooksService {
       return;
     }
 
+    const serialized = JSON.stringify(event);
+    const encrypted = this.encryption.encrypt(serialized);
+
     let recordId: string;
     if (existing) {
       recordId = existing.id;
-      await this.repo.updateForRetry(existing.id, event.type, JSON.stringify(event));
+      await this.repo.updateForRetry(existing.id, event.type, encrypted);
     } else {
       recordId = randomUUID();
-      await this.repo.insert(recordId, event.id, event.type, JSON.stringify(event));
+      await this.repo.insert(recordId, event.id, event.type, encrypted);
     }
 
     await this.webhookQueue.add(
       WEBHOOK_QUEUE,
       { eventId: event.id, recordId },
-      { attempts: 3, backoff: { type: 'exponential', delay: 5_000 } },
     );
 
     this.logger.log({
@@ -108,8 +112,9 @@ export class WebhooksService {
    * then marks the record as processed or failed.
    */
   async execute(eventId: string, recordId: string): Promise<void> {
-    const payload = await this.repo.getPayload(recordId);
-    const event = JSON.parse(payload) as Stripe.Event;
+    const encryptedPayload = await this.repo.getPayload(recordId);
+    const decryptedPayload = this.encryption.decrypt(encryptedPayload);
+    const event = JSON.parse(decryptedPayload) as Stripe.Event;
 
     try {
       await this.dispatch(event);

@@ -18,7 +18,7 @@ import { PaymentMethodHandler } from './handlers/payment-method.handler';
 import { CustomerHandler } from './handlers/customer.handler';
 import { MandateHandler } from './handlers/mandate.handler';
 import { WebhookSignatureGuard } from '../common/guards/webhook-signature.guard';
-import { WEBHOOK_QUEUE } from './webhook-queue.constants';
+import { WEBHOOK_QUEUE, WEBHOOK_DLQ } from './webhook-queue.constants';
 
 @Module({
   imports: [
@@ -29,7 +29,25 @@ import { WEBHOOK_QUEUE } from './webhook-queue.constants';
       }),
       inject: [ConfigService],
     }),
-    BullModule.registerQueue({ name: WEBHOOK_QUEUE }),
+    BullModule.registerQueue({
+      name: WEBHOOK_QUEUE,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5_000 },
+        // Remove successfully processed jobs after 7 days (keep for debugging)
+        removeOnComplete: { age: 7 * 24 * 3600 },
+        // Keep failed jobs for 30 days (for incident investigation)
+        removeOnFail: { age: 30 * 24 * 3600 },
+      },
+    }),
+    BullModule.registerQueue({
+      name: WEBHOOK_DLQ,
+      defaultJobOptions: {
+        // Dead-letter queue: keep jobs forever until manually reviewed
+        removeOnComplete: false,
+        removeOnFail: false,
+      },
+    }),
     CustomersModule,
     PaymentIntentsModule,
     SetupIntentsModule,

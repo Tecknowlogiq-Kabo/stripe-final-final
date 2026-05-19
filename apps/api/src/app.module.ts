@@ -25,6 +25,7 @@ import { ReportingModule } from './reporting/reporting.module';
 import { HealthModule } from './health/health.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { AuditModule } from './audit/audit.module';
+import { CryptoModule } from './crypto/crypto.module';
 import { RedisModule } from './redis/redis.module';
 import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
 import { StripeExceptionFilter } from './common/filters/stripe-exception.filter';
@@ -84,6 +85,7 @@ import { PerUserThrottlerGuard } from './common/guards/per-user-throttler.guard'
     HealthModule,
     MetricsModule,
     AuditModule,
+    CryptoModule,
   ],
   providers: [
     // Order matters: more specific filters first

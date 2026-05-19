@@ -3,6 +3,7 @@ import { getQueueToken } from '@nestjs/bullmq';
 import { WebhooksService } from './webhooks.service';
 import { WebhooksRepository } from './webhooks.repository';
 import { WEBHOOK_QUEUE } from './webhook-queue.constants';
+import { EncryptionService } from '../crypto/encryption.service';
 import { PaymentIntentHandler } from './handlers/payment-intent.handler';
 import { SetupIntentHandler } from './handlers/setup-intent.handler';
 import { SubscriptionHandler } from './handlers/subscription.handler';
@@ -55,6 +56,10 @@ describe('WebhooksService', () => {
         { provide: PaymentMethodHandler, useValue: { handle: jest.fn() } },
         { provide: CustomerHandler, useValue: { handle: jest.fn() } },
         { provide: MandateHandler, useValue: { handle: jest.fn() } },
+        {
+          provide: EncryptionService,
+          useValue: { encrypt: (s: string) => s, decrypt: (s: string) => s },
+        },
       ],
     }).compile();
 
@@ -86,7 +91,6 @@ describe('WebhooksService', () => {
       expect(queueAddMock).toHaveBeenCalledWith(
         WEBHOOK_QUEUE,
         expect.objectContaining({ eventId: 'evt_test123' }),
-        expect.objectContaining({ attempts: 3 }),
       );
     });
 
@@ -104,7 +108,6 @@ describe('WebhooksService', () => {
       expect(queueAddMock).toHaveBeenCalledWith(
         WEBHOOK_QUEUE,
         expect.objectContaining({ eventId: 'evt_test123', recordId: 'rec-1' }),
-        expect.anything(),
       );
     });
   });
