@@ -2,6 +2,7 @@ import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { WEBHOOK_QUEUE, WEBHOOK_DLQ } from './webhook-queue.constants';
 import { WebhooksService } from './webhooks.service';
 
@@ -10,20 +11,37 @@ interface WebhookJobData {
   recordId: string;
 }
 
+/**
+ * BullMQ worker that processes Stripe webhook events asynchronously.
+ *
+ * Each job is wrapped in an OTel span so Tempo shows webhook processing
+ * latency in the trace waterfall. Since BullMQ jobs run outside the HTTP
+ * request context, the span is a new root span unless trace context was
+ * propagated via the job data (future enhancement).
+ */
 @Processor(WEBHOOK_QUEUE)
 export class WebhookProcessor extends WorkerHost {
   private readonly logger = new Logger(WebhookProcessor.name);
 
   constructor(
     private readonly webhooksService: WebhooksService,
-    @InjectQueue(WEBHOOK_DLQ)
-    private readonly dlq: Queue<WebhookJobData>,
+    @InjectQueue(WEBHOOK_DLQ) private readonly dlq: Queue<WebhookJobData>,
   ) {
     super();
   }
 
   async process(job: Job<WebhookJobData>): Promise<void> {
     const { eventId, recordId } = job.data;
+    const tracer = trace.getTracer('stripe-webhooks');
+    const span = tracer.startSpan('webhook.process', {
+      attributes: {
+        'webhook.event_id': eventId,
+        'webhook.job_id': job.id ?? 'unknown',
+        'webhook.attempt': job.attemptsMade + 1,
+        'messaging.system': 'bullmq',
+        'messaging.destination': WEBHOOK_QUEUE,
+      },
+    });
 
     this.logger.log({
       message: 'Processing webhook job',
@@ -31,16 +49,21 @@ export class WebhookProcessor extends WorkerHost {
       eventId,
       recordId,
       attempt: job.attemptsMade + 1,
+      traceId: span.spanContext().traceId,
     });
 
-    await this.webhooksService.execute(eventId, recordId);
+    try {
+      await this.webhooksService.execute(eventId, recordId);
+      span.setStatus({ code: SpanStatusCode.OK });
+    } catch (err) {
+      span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+      span.recordException(err instanceof Error ? err : new Error(String(err)));
+      throw err;
+    } finally {
+      span.end();
+    }
   }
 
-  /**
-   * When a job exhausts all retries, move it to the dead-letter queue
-   * for manual review. This prevents permanent data loss from transient
-   * failures (Oracle blip, Stripe API outage, etc.).
-   */
   @OnWorkerEvent('failed')
   async onFailed(job: Job<WebhookJobData>, error: Error): Promise<void> {
     const attemptsMade = (job.attemptsMade ?? 0) + 1;
@@ -56,15 +79,10 @@ export class WebhookProcessor extends WorkerHost {
         error: error.message,
       });
 
-      await this.dlq.add(
-        `${job.data.eventId}-dlq`,
-        job.data,
-        {
-          // Keep the dead-lettered job for manual inspection
-          removeOnComplete: false,
-          removeOnFail: false,
-        },
-      );
+      await this.dlq.add(`${job.data.eventId}-dlq`, job.data, {
+        removeOnComplete: false,
+        removeOnFail: false,
+      });
     }
   }
 }

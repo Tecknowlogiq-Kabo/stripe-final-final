@@ -27,4 +27,9 @@ export const validationSchema = Joi.object({
   JWT_SECRET: Joi.string().min(32).required(),
   REDIS_URL: Joi.string().uri({ scheme: ['redis', 'rediss'] }).default('redis://localhost:6379'),
   LOG_FORMAT: Joi.string().valid('json', 'pretty').default('json'),
+  ENCRYPTION_KEY: Joi.string().min(32).optional(),
+  OTEL_SERVICE_NAME: Joi.string().default('stripe-api'),
+  OTEL_EXPORTER_OTLP_ENDPOINT: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://localhost:4318'),
+  OTEL_TRACES_SAMPLER: Joi.string().valid('always_on', 'parentbased_traceidratio').optional(),
+  OTEL_TRACES_SAMPLER_ARG: Joi.string().optional(),
 });

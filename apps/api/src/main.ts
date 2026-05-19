@@ -1,7 +1,6 @@
 // MUST be first — patches Node.js internals before any other import
 import './instrumentation';
 
-import * as Sentry from '@sentry/node';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { ValidationPipe, VersioningType, ClassSerializerInterceptor } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -29,17 +28,6 @@ async function bootstrap() {
   app.useLogger(app.get(Logger));
 
   const configService = app.get(ConfigService);
-
-  // Initialize Sentry if DSN is configured (gracefully no-ops otherwise)
-  const sentryDsn = configService.get<string>('sentry.dsn');
-  const nodeEnv = configService.get<string>('NODE_ENV') ?? 'development';
-  if (sentryDsn) {
-    Sentry.init({
-      dsn: sentryDsn,
-      environment: nodeEnv,
-      tracesSampleRate: nodeEnv === 'production' ? 0.1 : 1.0,
-    });
-  }
 
   const apiPrefix = configService.get<string>('apiPrefix') ?? 'api/v1';
   const port = configService.get<number>('port') ?? 3001;

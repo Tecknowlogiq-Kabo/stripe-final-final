@@ -35,8 +35,11 @@ export default () => ({
   redis: {
     url: process.env.REDIS_URL ?? 'redis://localhost:6379',
   },
-  sentry: {
-    dsn: process.env.SENTRY_DSN,
+  observability: {
+    otelServiceName: process.env.OTEL_SERVICE_NAME ?? 'stripe-api',
+    otelExporterEndpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4318',
+    otelTracesSampler: process.env.OTEL_TRACES_SAMPLER,
+    otelTracesSamplerArg: process.env.OTEL_TRACES_SAMPLER_ARG,
   },
   encryption: {
     key: process.env.ENCRYPTION_KEY,
