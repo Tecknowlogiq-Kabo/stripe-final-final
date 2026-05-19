@@ -14,8 +14,20 @@ export class StripeExceptionFilter implements ExceptionFilter {
 
   catch(exception: Stripe.errors.StripeError, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
-    const response = ctx.getResponse<Response>();
+    const response = ctx.getResponse<Response & { locals?: Record<string, unknown> }>();
     const request = ctx.getRequest<Request & { correlationId?: string }>();
+
+    // Guard against double-response: if the RequestTimeoutMiddleware already sent
+    // a 503, or if headers are already sent for any reason, log and return silently.
+    if (response.headersSent || response.locals?.timedOut) {
+      this.logger.warn({
+        message: 'StripeExceptionFilter: response already sent (timeout or double-fire)',
+        stripeRequestId: exception.requestId,
+        correlationId: request.correlationId,
+        path: request.url,
+      });
+      return;
+    }
 
     // ALWAYS log Stripe request_id — required for Stripe support correlation
     this.logger.error({
@@ -74,14 +86,20 @@ export class StripeExceptionFilter implements ExceptionFilter {
     const responseBody: Record<string, unknown> = {
       statusCode: status,
       message: userMessage,
-      // stripeRequestId is safe to expose — clients can use it for support
       stripeRequestId: exception.requestId,
+      correlationId: request.correlationId,
       timestamp: new Date().toISOString(),
       path: request.url,
     };
 
     if (shouldRetry) {
-      responseBody.retryAfter = 5;
+      // Use Stripe's actual Retry-After if available, otherwise default to 30s.
+      // The hardcoded 5s was dangerous — Stripe may need 30-60s to recover.
+      const rawException = exception as unknown as Record<string, unknown>;
+      const stripeRetryAfter = (rawException?.headers as Record<string, string> | undefined)?.['retry-after'];
+      const retrySeconds = stripeRetryAfter ? parseInt(stripeRetryAfter, 10) : 30;
+      response.setHeader('Retry-After', String(retrySeconds));
+      responseBody.retryAfter = retrySeconds;
     }
 
     response.status(status).json(responseBody);

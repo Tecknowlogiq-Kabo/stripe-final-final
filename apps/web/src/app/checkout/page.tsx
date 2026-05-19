@@ -22,6 +22,12 @@ export default function CheckoutPage() {
   const [currency, setCurrency] = useState('usd');
   const [isCreatingPI, setIsCreatingPI] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastFormData, setLastFormData] = useState<{
+    amount: number;
+    currency: string;
+    paymentMethodType: string;
+    savePaymentMethod: boolean;
+  } | null>(null);
 
   if (isLoadingCustomer) {
     return (
@@ -48,6 +54,7 @@ export default function CheckoutPage() {
   }) => {
     setError(null);
     setIsCreatingPI(true);
+    setLastFormData(data);
 
     try {
       const result = await createPaymentIntent({
@@ -62,7 +69,8 @@ export default function CheckoutPage() {
       setClientSecret(result.clientSecret);
       setStep('payment');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create payment. Please try again.');
+      const friendly = friendlyErrorMessage(err);
+      setError(friendly);
     } finally {
       setIsCreatingPI(false);
     }
@@ -74,6 +82,27 @@ export default function CheckoutPage() {
     setError(null);
   };
 
+  const handleRetry = () => {
+    if (lastFormData) {
+      handleSubmit(lastFormData);
+    }
+  };
+
+  /** Map raw error messages to user-friendly text. */
+  const friendlyErrorMessage = (err: unknown): string => {
+    if (err instanceof Error) {
+      const msg = err.message.toLowerCase();
+      if (msg.includes('failed to fetch') || msg.includes('network') || msg.includes('unable to reach')) {
+        return 'Connection failed. Please check your internet and try again.';
+      }
+      if (msg.includes('internal server error') || msg.includes('service is experiencing')) {
+        return 'Something went wrong on our end. Please try again.';
+      }
+      return err.message;
+    }
+    return 'Failed to create payment. Please try again.';
+  };
+
   return (
     <div className="max-w-lg mx-auto">
       <div className="card">
@@ -83,7 +112,16 @@ export default function CheckoutPage() {
 
         {error && (
           <div role="alert" className="alert-error mb-4">
-            <p>{error}</p>
+            <p className="mb-2">{error}</p>
+            {lastFormData && (
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="text-sm font-medium text-zinc-100 underline hover:no-underline"
+              >
+                Try again
+              </button>
+            )}
           </div>
         )}
 

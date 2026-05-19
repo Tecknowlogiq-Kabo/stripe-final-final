@@ -63,12 +63,33 @@ export class InvoiceHandler {
       case 'invoice.payment_failed':
         if (invoice.subscription) {
           this.logger.warn({
-            message: 'Invoice payment failed for subscription',
+            message: 'Invoice payment failed for subscription — updating status to past_due',
             stripeSubscriptionId: invoice.subscription,
             attemptCount: invoice.attempt_count,
             nextPaymentAttempt: invoice.next_payment_attempt,
           });
-          // Subscription status will be updated via customer.subscription.updated event
+
+          // Update status immediately so the UI reflects the failure.
+          // The customer.subscription.updated webhook will follow, but may be delayed.
+          try {
+            const sub = await this.subscriptionsService.findByStripeId(
+              invoice.subscription as string,
+            );
+            if (sub && sub.status === 'active') {
+              await this.subscriptionsService.setStatus(sub.id, 'past_due');
+              this.logger.log({
+                message: 'Subscription marked past_due due to payment failure',
+                subscriptionId: sub.id,
+                stripeSubscriptionId: invoice.subscription,
+              });
+            }
+          } catch (err) {
+            this.logger.error({
+              message: 'Failed to update subscription status on payment failure',
+              stripeSubscriptionId: invoice.subscription,
+              err,
+            });
+          }
         }
         break;
 

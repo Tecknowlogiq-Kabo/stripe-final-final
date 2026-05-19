@@ -108,6 +108,14 @@ export class SubscriptionsRepository {
     );
   }
 
+  /** Set only the status field — lightweight webhook-driven update. */
+  async syncUpdateStatus(id: string, status: string): Promise<void> {
+    await this.dataSource.query(
+      `UPDATE STRIPE_SUBSCRIPTIONS SET STATUS = :1, UPDATED_AT = SYSDATE WHERE ID = :2`,
+      [status, id],
+    );
+  }
+
   async syncUpdate(
     id: string,
     status: string,

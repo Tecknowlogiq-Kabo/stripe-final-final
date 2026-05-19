@@ -82,6 +82,7 @@ export default function PaymentMethodsPage() {
   const [setupError, setSetupError] = useState<MappedStripeError | null>(null);
   const [addingNew, setAddingNew] = useState(false);
   const [isRecoverable, setIsRecoverable] = useState(false);
+  const [detachingPm, setDetachingPm] = useState<PaymentMethod | null>(null);
 
   const { data: myCustomer } = useMyCustomer();
   const customerId = myCustomer?.id ?? '';
@@ -235,7 +236,13 @@ export default function PaymentMethodsPage() {
                     </button>
                   )}
                   <button
-                    onClick={() => detach({ id: pm.id, customerId })}
+                    onClick={() => {
+                      if (pm.isDefault) {
+                        setDetachingPm(pm);
+                      } else {
+                        detach({ id: pm.id, customerId });
+                      }
+                    }}
                     disabled={isDetaching}
                     className="btn-danger text-xs px-2 py-1"
                   >
@@ -245,6 +252,39 @@ export default function PaymentMethodsPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Detach default PM confirmation dialog */}
+      {detachingPm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="card max-w-sm mx-4" role="dialog" aria-modal="true">
+            <h3 className="text-lg font-semibold text-zinc-100 mb-2">Remove default payment method?</h3>
+            <p className="text-sm text-zinc-400 mb-4">
+              <strong>{getPaymentMethodLabel(detachingPm)}</strong> is your default payment method.
+              Removing it may cause active subscriptions to fail on the next payment.
+            </p>
+            <p className="text-xs text-amber-400 mb-4">
+              Please set another payment method as default first, or remove this one and update your subscriptions.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setDetachingPm(null)}
+                className="btn-ghost text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  detach({ id: detachingPm.id, customerId });
+                  setDetachingPm(null);
+                }}
+                className="btn-danger text-sm"
+              >
+                Remove anyway
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

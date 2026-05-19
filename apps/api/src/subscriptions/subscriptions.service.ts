@@ -220,6 +220,11 @@ export class SubscriptionsService {
     }
   }
 
+  /** Set subscription status — used by webhook handlers for immediate status updates. */
+  async setStatus(id: string, status: string): Promise<void> {
+    await this.repo.syncUpdateStatus(id, status);
+  }
+
   async listPlans(activeOnly = true): Promise<SubscriptionPlan[]> {
     const cacheKey = CacheKeys.plans(activeOnly);
     const cached = await this.redis.get<SubscriptionPlan[]>(cacheKey);

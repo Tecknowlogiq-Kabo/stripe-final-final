@@ -15,8 +15,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
-    const response = ctx.getResponse<Response>();
+    const response = ctx.getResponse<Response & { locals?: Record<string, unknown> }>();
     const request = ctx.getRequest<Request & { correlationId?: string }>();
+
+    // Guard against double-response: if RequestTimeoutMiddleware already sent a 503,
+    // log and return silently to prevent ERR_HTTP_HEADERS_SENT crash.
+    if (response.headersSent || response.locals?.timedOut) {
+      this.logger.warn({
+        message: 'AllExceptionsFilter: response already sent (timeout or double-fire)',
+        correlationId: request.correlationId,
+        path: sanitizePath(request.url),
+      });
+      return;
+    }
 
     let status: number;
     let message: unknown;

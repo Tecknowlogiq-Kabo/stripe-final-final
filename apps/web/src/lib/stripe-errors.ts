@@ -396,6 +396,14 @@ export function mapPaymentIntentStatus(
         action: 'Please try again and complete the verification step.',
       };
 
+    case 'requires_capture':
+      return {
+        title: 'Payment authorized',
+        message: 'Your payment has been authorized and will be captured when your order ships.',
+        recoverability: 'non-recoverable',
+        action: 'No further action needed.',
+      };
+
     default:
       return {
         title: 'Unexpected status',
@@ -447,6 +455,14 @@ export function mapSetupIntentStatus(
         message: 'This setup requires additional confirmation. Your payment method was not saved.',
         recoverability: 'retry',
         action: 'Please try again or contact support.',
+      };
+
+    case 'processing':
+      return {
+        title: 'Verification in progress',
+        message: 'Your payment method is being verified. This typically takes 1-3 business days for bank accounts. We will notify you when verification is complete.',
+        recoverability: 'non-recoverable',
+        action: 'No further action needed. Your payment method will be ready once verified.',
       };
 
     default:
