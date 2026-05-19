@@ -28,6 +28,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
         typeof exceptionResponse === 'object' && 'message' in (exceptionResponse as object)
           ? (exceptionResponse as Record<string, unknown>).message
           : exceptionResponse;
+    } else if (exception instanceof Error && ((exception as any).type === 'entity.parse.failed' || (exception as any).status === 413)) {
+      // Express body-parser payload too large
+      status = HttpStatus.PAYLOAD_TOO_LARGE;
+      message = 'Request body exceeds 100kb limit';
     } else {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
       message = 'Internal server error';

@@ -10,6 +10,7 @@ import compression from 'compression';
 import * as express from 'express';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
+import { SanitizeHtmlPipe } from './common/pipes/sanitize-html.pipe';
 
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled rejection', reason);
@@ -82,6 +83,8 @@ async function bootstrap() {
   });
 
   app.useGlobalPipes(
+    // Sanitize HTML before validation — strips <script>, <img onerror>, etc.
+    new SanitizeHtmlPipe(),
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,

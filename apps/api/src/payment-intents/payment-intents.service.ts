@@ -116,7 +116,7 @@ export class PaymentIntentsService {
     const pi = await this.repo.findById(id);
     if (!pi) throw new NotFoundException(`PaymentIntent ${id} not found`);
 
-    const customer = await this.repo.findCustomerById(pi.customerId);
+    const customer = pi.customerId ? await this.repo.findCustomerById(pi.customerId) : null;
     if (customer) pi.customer = customer;
 
     return pi;

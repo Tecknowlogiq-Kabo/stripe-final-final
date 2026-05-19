@@ -66,7 +66,7 @@ export class PaymentIntentsController {
     @CurrentUser() user: JwtUser,
   ) {
     const pi = await this.service.findById(id);
-    await this.assertCustomerOwnership(pi.customerId, user.id);
+    if (pi.customerId) await this.assertCustomerOwnership(pi.customerId, user.id);
     return toPublicPaymentIntent(pi);
   }
 
@@ -77,7 +77,7 @@ export class PaymentIntentsController {
   ) {
     const pi = await this.service.findByStripeId(stripeId);
     if (!pi) throw new NotFoundException(`PaymentIntent ${stripeId} not found`);
-    await this.assertCustomerOwnership(pi.customerId, user.id);
+    if (pi.customerId) await this.assertCustomerOwnership(pi.customerId, user.id);
     return {
       id: pi.id,
       status: pi.status,
@@ -107,7 +107,7 @@ export class PaymentIntentsController {
     @CurrentUser() user: JwtUser,
   ) {
     const pi = await this.service.findById(id);
-    await this.assertCustomerOwnership(pi.customerId, user.id);
+    if (pi.customerId) await this.assertCustomerOwnership(pi.customerId, user.id);
     return toPublicPaymentIntent(await this.service.update(id, dto, idempotencyKey));
   }
 
@@ -118,7 +118,7 @@ export class PaymentIntentsController {
     @CurrentUser() user: JwtUser,
   ) {
     const pi = await this.service.findById(id);
-    await this.assertCustomerOwnership(pi.customerId, user.id);
+    if (pi.customerId) await this.assertCustomerOwnership(pi.customerId, user.id);
     return toPublicPaymentIntent(await this.service.cancel(id));
   }
 
