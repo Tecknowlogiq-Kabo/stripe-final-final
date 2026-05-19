@@ -1,0 +1,132 @@
+# =============================================================================
+# Prometheus Configuration — Scrape Targets & Alerting
+# =============================================================================
+#
+# Prometheus scrapes the NestJS app's /api/v1/metrics endpoint (prom-client),
+# stores time series in TSDB, and evaluates alerting rules.
+#
+# SCRAPE FREQUENCY:
+#   15s is the standard Prometheus scrape interval. Faster → more data, slower
+#   → coarser alerting. 15s gives good alert responsiveness without overloading
+#   the /metrics endpoint (which is cheap — just reads prom-client register).
+#
+# RETENTION:
+#   15 days or 20GB (set via command-line flags in docker-compose.lgtm.yml).
+#   This is sufficient for operational dashboards and trend analysis. For
+#   long-term business metrics, export to a data warehouse via remote_write.
+#
+# SECURITY:
+#   The /metrics endpoint on the NestJS app currently has no auth. This config
+#   assumes Prometheus is scraping over the Docker bridge network
+#   (host.docker.internal on Mac/Win, 172.17.0.1 on Linux). If the app adds
+#   auth, configure basic_auth below.
+# =============================================================================
+
+global:
+  scrape_interval: 15s            # How often to scrape targets
+  scrape_timeout: 10s             # Max time to wait for a scrape response
+  evaluation_interval: 15s        # How often to evaluate alerting rules
+  external_labels:
+    cluster: stripe-production    # Identifies metrics from this Prometheus instance
+    region: "${AWS_REGION:-us-east-1}"
+
+# Alertmanager integration — points to the Alertmanager service that receives
+# alert notifications and routes them to Slack, PagerDuty, email, etc.
+# Currently empty (no Alertmanager container). Uncomment when Alertmanager is
+# added to docker-compose.lgtm.yml.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+          # - targets: ['alertmanager:9093']
+
+# Alerting rule files — evaluated every evaluation_interval (15s).
+rule_files:
+  - /etc/prometheus/alerting-rules.yml
+
+scrape_configs:
+  # =========================================================================
+  # Stripe API — scrape prom-client metrics
+  # =========================================================================
+  # The NestJS app exposes /api/v1/metrics via prom-client.
+  # On Linux EC2, the host is reachable as host.docker.internal:3001
+  # (resolved via extra_hosts: host-gateway in docker-compose).
+  # This single scrape collects all Stripe API metrics:
+  #   - HTTP request duration, count, errors (stripe_http_*)
+  #   - Node.js runtime (process_cpu_*, nodejs_eventloop_*, etc.)
+  #   - Business metrics (stripe_payment_*, stripe_webhook_*, etc.) — once added
+  # =========================================================================
+  - job_name: stripe-api
+    metrics_path: /api/v1/metrics
+    scheme: http
+    static_configs:
+      - targets:
+          - 'host.docker.internal:3001'
+        labels:
+          service: stripe-api
+          env: production
+
+    # If the /metrics endpoint requires auth (recommended — see the
+    # MetricsAccessGuard in the NestJS app), configure basic auth here.
+    # The password should come from an env var or Docker secret.
+    # basic_auth:
+    #   username: prometheus
+    #   password: ${METRICS_SCRAPE_PASSWORD}
+
+    # metric_relabel_configs can drop or rewrite metrics before storage.
+    # Example: drop health-check endpoint metrics (noisy, tracked separately).
+    # metric_relabel_configs:
+    #   - source_labels: [route]
+    #     regex: '.*/health.*'
+    #     action: drop
+
+  # =========================================================================
+  # Stripe API Health Check — blackbox-style uptime monitoring
+  # =========================================================================
+  # Scrapes /api/v1/health every 30s. The health endpoint returns HTTP 200
+  # if all checks pass (Oracle, Stripe, Redis). Prometheus records the `up`
+  # metric: 1 = healthy, 0 = unhealthy / timeout / error.
+  #
+  # Use case: Alert when up{job="stripe-api-health"} == 0 for > 5m.
+  # Note: The health endpoint itself has no auth (@Public() decorator),
+  # but it's only accessible within the VPC (not exposed to the internet).
+  # =========================================================================
+  - job_name: stripe-api-health
+    metrics_path: /api/v1/health
+    scheme: http
+    scrape_interval: 30s         # Health checks don't need 15s granularity
+    static_configs:
+      - targets:
+          - 'host.docker.internal:3001'
+        labels:
+          service: stripe-api-health
+
+  # =========================================================================
+  # Prometheus self-scrape — monitor the monitor
+  # =========================================================================
+  # Prometheus exposes its own metrics at /metrics. Scraping itself gives
+  # visibility into:
+  #   - Scrape duration and success rates per target
+  #   - TSDB compaction stats
+  #   - Rule evaluation duration
+  #   - Memory/CPU usage of Prometheus itself
+  # =========================================================================
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # =========================================================================
+  # Node Exporter — system-level metrics (CPU, memory, disk, network)
+  # =========================================================================
+  # Install prometheus-node-exporter on the EC2 host:
+  #   Amazon Linux 2:  sudo yum install prometheus-node-exporter
+  #   Ubuntu:          sudo apt-get install prometheus-node-exporter
+  #   It exposes /metrics on port 9100.
+  #
+  # Uncomment the block below after installing node_exporter.
+  # This gives dashboards for: CPU utilization, memory pressure, disk I/O,
+  # network throughput, and open file descriptors.
+  # =========================================================================
+  # - job_name: node
+  #   static_configs:
+  #     - targets: ['host.docker.internal:9100']

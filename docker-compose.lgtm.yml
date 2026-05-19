@@ -1,0 +1,356 @@
+version: '3.9'
+
+# =============================================================================
+# LGTM Observability Stack — Production
+# =============================================================================
+#
+# PURPOSE:
+#   Full observability backend for the Stripe Payments API running on EC2 with PM2.
+#   Provides log aggregation (Loki), distributed tracing (Tempo), metrics
+#   storage + scraping (Prometheus), visualization + alerting (Grafana), and
+#   log shipping from the host filesystem (Alloy).
+#
+# WHY CO-LOCATED ON THE SAME EC2 INSTANCE:
+#   - Near-zero network latency (all services talk over localhost)
+#   - No egress costs (all data stays on the box)
+#   - Simpler setup than a separate monitoring instance
+#   - Acceptable tradeoff: if the EC2 instance dies, recent observability data
+#     is lost — but operational visibility while running is the primary goal.
+#   - For long-term retention, add S3 backends to Loki/Tempo later.
+#
+# WHY ALLOY INSTEAD OF PROMTAIL:
+#   - Alloy is Grafana's unified agent (replaces Promtail, Grafana Agent)
+#   - Same file-tail semantics but also supports metrics, traces, and
+#     remote config if we ever go multi-instance
+#
+# DEPLOYMENT:
+#   1. Create EBS volume mounted at /data with subdirs: loki, tempo, prometheus, grafana
+#      sudo mkdir -p /data/{loki,tempo,prometheus,grafana}
+#      sudo chown -R 10001:10001 /data/loki        # Loki runs as UID 10001
+#      sudo chown -R 10001:10001 /data/tempo       # Tempo runs as UID 10001
+#      sudo chown -R nobody:nobody /data/prometheus # Prometheus runs as nobody
+#      sudo chown -R 472:472 /data/grafana         # Grafana runs as UID 472
+#   2. Ensure the app log directory exists:
+#      sudo mkdir -p /home/ec2-user/stripe-api/apps/api/logs
+#   3. Start the stack:
+#      docker compose -f docker-compose.lgtm.yml up -d
+#   4. Verify:
+#      docker compose -f docker-compose.lgtm.yml ps
+#      curl http://localhost:9090/-/healthy   # Prometheus
+#      curl http://localhost:3100/ready       # Loki
+#      curl http://localhost:3200/ready       # Tempo
+#      curl http://localhost:3000/api/health  # Grafana
+#
+# SECURITY NOTE:
+#   All non-Grafana ports bind to 127.0.0.1 (localhost only).
+#   Grafana port 3000 binds to 0.0.0.0 but MUST be fronted by a reverse proxy
+#   (NGINX or Caddy) with TLS termination (Let's Encrypt) and authentication
+#   (Basic Auth or OAuth2 proxy).
+#
+# RESOURCE BUDGET (t3.large: 2 vCPU, 8GB RAM):
+#   App (PM2 × 2 workers):   ~1.5 GB
+#   Oracle + Redis:           ~1.0 GB
+#   LGTM stack:               ~2.5 GB
+#   OS + Docker + headroom:   ~3.0 GB
+#   TOTAL:                    ~8.0 GB (comfortable)
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # Loki — Log Aggregation
+  # ===========================================================================
+  # Collects structured JSON logs from Alloy (which tails pino-roll files on
+  # the host). Provides the backend for Grafana's log exploration (LogQL).
+  #
+  # RETENTION: 30 days general, 90 days for error-level logs (configured in
+  #            loki-config.yaml via retention_stream).
+  # STORAGE:   Local filesystem on /data/loki (EBS volume for persistence
+  #            across container restarts).
+  # SCALING:   Single instance is fine for moderate log volume. If log volume
+  #            grows, split into distributor/ingester/querier microservices.
+  # ===========================================================================
+  loki:
+    image: grafana/loki:3.3
+    container_name: stripe_loki
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3100:3100"   # Loki HTTP API — localhost only (Grafana and Alloy connect internally)
+    volumes:
+      - loki_data:/loki                                                        # Persistent WAL + chunks + TSDB index
+      - ./config/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro          # Read-only config
+    command: -config.file=/etc/loki/loki-config.yaml
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'       # Burst ceiling — query compilation is CPU-heavy
+          memory: 512M      # Hard limit — includes WAL buffers + TSDB index cache
+        reservations:
+          cpus: '0.25'      # Idle baseline — ingestion is mostly I/O-bound
+          memory: 256M      # Typical steady-state memory
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s     # Loki needs time to replay WAL on startup
+    networks:
+      - observability_net
+
+  # ===========================================================================
+  # Tempo — Distributed Tracing Backend
+  # ===========================================================================
+  # Receives OTLP spans from the NestJS app's OpenTelemetry SDK (via port 4318
+  # HTTP or 4317 gRPC). Stores traces as blocks on local disk. Provides the
+  # backend for Grafana's trace exploration and service graph visualization.
+  #
+  # METRICS GENERATOR: Tempo also generates RED metrics (Rate, Errors, Duration)
+  #                    from span data and remote-writes them to Prometheus. This
+  #                    gives us service-level metrics without manual
+  #                    instrumentation in every handler.
+  #
+  # RETENTION: 14 days (traces are high-volume; longer retention adds cost
+  #            without proportional value for incident response).
+  # ===========================================================================
+  tempo:
+    image: grafana/tempo:2.7
+    container_name: stripe_tempo
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4317:4317"   # OTLP gRPC receiver — alternative to HTTP for lower overhead
+      - "127.0.0.1:4318:4318"   # OTLP HTTP receiver — used by the NestJS OTel SDK
+      - "127.0.0.1:3200:3200"   # Tempo query API — Grafana queries this for trace data
+    volumes:
+      - tempo_data:/var/tempo                                                 # Persistent WAL + trace blocks
+      - ./config/tempo/tempo-config.yaml:/etc/tempo/tempo-config.yaml:ro     # Read-only config
+    command: -config.file=/etc/tempo/tempo-config.yaml
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3200/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - observability_net
+
+  # ===========================================================================
+  # Prometheus — Metrics TSDB + Scraper
+  # ===========================================================================
+  # Scrapes the NestJS app's /api/v1/metrics endpoint every 15s. Stores time
+  # series in TSDB on /data/prometheus. Evaluates alerting rules from
+  # alerting-rules.yml and fires alerts when thresholds are breached.
+  #
+  # WHY PROMETHEUS INSTEAD OF MIMIR:
+  #   For a single EC2 instance, Prometheus is simpler and lighter than Mimir
+  #   (which is designed for multi-tenant, horizontally-scaled metric storage).
+  #   We can migrate to Mimir later if we need clustering or long-term storage.
+  #
+  # RETENTION: 15 days or 20GB (whichever comes first). For a moderate Stripe
+  #            API with ~10 custom metrics × ~50 label combinations, 15 days
+  #            typically fits in 2-5 GB.
+  # ===========================================================================
+  prometheus:
+    image: prom/prometheus:v3.1
+    container_name: stripe_prometheus
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9090:9090"    # Prometheus UI + API — localhost only
+    volumes:
+      - prometheus_data:/prometheus                                                  # TSDB data directory
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro         # Scrape config
+      - ./config/prometheus/alerting-rules.yml:/etc/prometheus/alerting-rules.yml:ro # Alert definitions
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'         # Keep data for 15 days
+      - '--storage.tsdb.retention.size=20GB'         # Hard cap to prevent disk exhaustion
+      - '--web.enable-lifecycle'                     # Allows hot-reload of config via HTTP POST /-/reload
+      - '--web.listen-address=0.0.0.0:9090'          # Bind to all interfaces inside container
+    extra_hosts:
+      # On Linux, host.docker.internal is not available by default.
+      # host-gateway resolves to the Docker bridge gateway IP (typically 172.17.0.1),
+      # which is the host machine from inside the container.
+      - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G         # Prometheus is memory-heavy (TSDB index + rule evaluation)
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - observability_net
+
+  # ===========================================================================
+  # Grafana — Dashboards + Alerting UI
+  # ===========================================================================
+  # Unified visualization layer. Connects to Prometheus (metrics), Loki (logs),
+  # and Tempo (traces) via pre-provisioned datasources. Supports trace-to-logs
+  # drill-down: click a span → see correlated log lines.
+  #
+  # AUTHENTICATION:
+  #   Admin credentials are set via GF_ADMIN_USER / GF_ADMIN_PASSWORD env vars.
+  #   Anonymous access is disabled. Signups are disabled.
+  #   In production, front Grafana with NGINX/Caddy + OAuth2 proxy.
+  #
+  # ALERTING:
+  #   Grafana Alerting can evaluate Prometheus rules and send notifications
+  #   via SMTP, Slack, PagerDuty, etc. SMTP is configured via GF_SMTP_* vars.
+  # ===========================================================================
+  grafana:
+    image: grafana/grafana:11.5
+    container_name: stripe_grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"   # Grafana UI — front with reverse proxy + auth!
+    environment:
+      # Server root URL — set to your domain behind the reverse proxy
+      GF_SERVER_ROOT_URL: "${GF_SERVER_ROOT_URL:-http://localhost:3000}"
+      # Admin credentials — change in production via .env or secrets manager
+      GF_SECURITY_ADMIN_USER: "${GF_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GF_ADMIN_PASSWORD:-admin}"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"       # No unauthenticated access
+      GF_AUTH_DISABLE_SIGNUP: "true"           # No self-registration
+      # SMTP for email alert notifications
+      GF_SMTP_ENABLED: "${GF_SMTP_ENABLED:-false}"
+      GF_SMTP_HOST: "${GF_SMTP_HOST:-}"
+      GF_SMTP_USER: "${GF_SMTP_USER:-}"
+      GF_SMTP_PASSWORD: "${GF_SMTP_PASSWORD:-}"
+      GF_SMTP_FROM_ADDRESS: "${GF_SMTP_FROM_ADDRESS:-}"
+    volumes:
+      - grafana_data:/var/lib/grafana                                           # Dashboards, alerting state, plugins
+      - ./config/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro    # Pre-configured datasources
+      - ./config/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro      # Dashboard providers
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro              # Dashboard JSON files
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      # Start Grafana only after all data backends are healthy.
+      # This prevents "datasource not found" errors in dashboards.
+      loki:
+        condition: service_healthy
+      tempo:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+    networks:
+      - observability_net
+
+  # ===========================================================================
+  # Alloy — Log Shipper
+  # ===========================================================================
+  # Grafana Alloy tails pino-roll log files from the host filesystem and ships
+  # them to Loki. Uses the same log discovery + tailing mechanism as Promtail
+  # (loki.source.file) but is the forward-looking agent from Grafana Labs.
+  #
+  # WHY FILE-BASED SHIPPING INSTEAD OF A PINO LOKI TRANSPORT:
+  #   - Decoupled from the app: if Alloy goes down, logs are still written to
+  #     disk by pino-roll. No log loss.
+  #   - No runtime overhead in the Node.js process (no extra HTTP calls per log
+  #     line).
+  #   - Alloy handles batching, compression, retries, and backpressure.
+  #
+  # VOLUME MOUNT:
+  #   Read-only mount of /home/ec2-user/stripe-api/apps/api/logs → /var/log/app.
+  #   pino-roll writes combined.*.log and error.*.log here. Alloy tails both
+  #   patterns via globs in config.alloy.
+  # ===========================================================================
+  alloy:
+    image: grafana/alloy:v1.6
+    container_name: stripe_alloy
+    restart: unless-stopped
+    volumes:
+      # Read-only mount of the app's pino-roll log directory
+      - /home/ec2-user/stripe-api/apps/api/logs:/var/log/app:ro
+      - ./config/alloy/config.alloy:/etc/alloy/config.alloy:ro
+    command: run --server.http.listen-addr=0.0.0.0:12345 /etc/alloy/config.alloy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'        # File tailing is very lightweight
+          memory: 128M
+    networks:
+      - observability_net
+
+# =============================================================================
+# Named Volumes — Bound to /data EBS Mount
+# =============================================================================
+# Each volume maps to a subdirectory on a dedicated EBS volume mounted at /data.
+# This decouples observability data from the root volume, so:
+#   - Root volume rebuilds don't lose monitoring data
+#   - EBS snapshots provide backup/restore for the observability state
+#   - Storage can be resized independently of the root volume
+#
+# For CI/staging without EBS, change driver_opts to empty (Docker-managed):
+#   driver: local  (remove driver_opts block)
+# =============================================================================
+volumes:
+  loki_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/loki
+  tempo_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/tempo
+  prometheus_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/prometheus
+  grafana_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/grafana
+
+# =============================================================================
+# Network — Internal bridge
+# =============================================================================
+# All LGTM containers communicate on a single bridge network. This isolates
+# observability traffic from the app's stripe_net (used by the dev/prod
+# docker-compose files). Containers discover each other by service name:
+# loki:3100, tempo:3200, prometheus:9090, etc.
+#
+# The app (running on the host via PM2, not in Docker) reaches Tempo at
+# localhost:4318 (host port mapping). Prometheus scrapes the app at
+# host.docker.internal:3001 (host-gateway).
+# =============================================================================
+networks:
+  observability_net:
+    driver: bridge

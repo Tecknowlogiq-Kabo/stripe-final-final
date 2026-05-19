@@ -1,0 +1,101 @@
+# =============================================================================
+# Tempo Configuration — Distributed Tracing Backend
+# =============================================================================
+#
+# Tempo receives OTLP spans from the NestJS app's OpenTelemetry SDK, stores
+# them as blocks on local disk, and serves trace queries to Grafana.
+#
+# KEY DESIGN DECISIONS:
+#   - Single-binary mode — all components (distributor, ingester, querier,
+#     compactor, metrics-generator) run in one process. Appropriate for
+#     single EC2 deployment. Split into microservices for multi-tenant.
+#   - OTLP protocol — the NestJS SDK sends via HTTP (port 4318). gRPC (4317)
+#     is also available for lower overhead if we switch later.
+#   - Metrics Generator — derives RED metrics (Rate, Errors, Duration) from
+#     span data and remote-writes them to Prometheus. This gives us per-service
+#     metrics without manual instrumentation in every handler.
+#   - Local filesystem storage — spans are written to /var/tempo on the EBS
+#     volume for persistence across container restarts.
+#   - 14-day retention — traces are high volume; longer retention cost grows
+#     quickly. Incident investigation rarely needs traces older than 2 weeks.
+#
+# CONNECTIONS:
+#   - NestJS OTel SDK → http://localhost:4318/v1/traces (HTTP)
+#   - Grafana → http://tempo:3200 (Tempo query API)
+#   - Metrics Generator → http://prometheus:9090/api/v1/write (remote write)
+#
+# ENABLING SAMPLING:
+#   The NestJS SDK samples at 10% in production (OTEL_TRACES_SAMPLER_ARG=0.1).
+#   Tempo can also apply head sampling in the distributor if needed.
+# =============================================================================
+
+server:
+  http_listen_port: 3200       # Query API — Grafana hits this for trace data
+  log_level: info
+
+# The distributor is the first stop for incoming spans.
+# It validates, hashes by trace ID, and routes to the appropriate ingester.
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317       # OTLP gRPC — lower overhead than HTTP
+        http:
+          endpoint: 0.0.0.0:4318       # OTLP HTTP — used by the NestJS OTel SDK
+
+# The ingester buffers spans in memory, then flushes completed trace blocks to
+# storage. Trace "completion" is determined by max_block_duration.
+ingester:
+  max_block_duration: 5m               # Flush a trace block if no new spans for 5 minutes
+                                       # This trades query freshness against storage efficiency
+
+# The compactor merges blocks and enforces retention.
+compactor:
+  compaction:
+    block_retention: 336h              # 14 days — delete trace blocks older than 2 weeks
+
+# The metrics generator produces service-level RED metrics from span data.
+# These metrics are written to Prometheus via remote_write and let us create
+# dashboards/alerting without manual per-endpoint instrumentation.
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo                    # Identifies these metrics as Tempo-generated
+      cluster: stripe-production       # Useful when querying across clusters
+  storage:
+    path: /var/tempo/generator/wal     # WAL for generated metrics (survives restart)
+    remote_write:
+      # Prometheus remote-write receiver must be enabled:
+      # --web.enable-remote-write-receiver  (add to docker-compose command if using)
+      # If Prometheus doesn't have remote-write enabled, these writes will fail
+      # silently — the metrics generator will retry. The NestJS app's prom-client
+      # metrics (scraped directly) still work independently.
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true           # Exemplars link metrics to specific traces
+  traces_storage:
+    path: /var/tempo/generator/traces  # Temporary storage for trace data used in metric generation
+
+# Storage backend — where trace blocks live.
+storage:
+  trace:
+    backend: local                     # Local filesystem (on EBS volume)
+    wal:
+      path: /var/tempo/wal             # Write-Ahead Log for durability
+    local:
+      path: /var/tempo/blocks          # Completed trace blocks
+
+# Per-tenant overrides. "defaults" applies to the single-tenant (no auth) setup.
+overrides:
+  defaults:
+    metrics_generator:
+      # processors: which derived metrics to generate
+      #   service-graphs  — which services call which (spans as edges)
+      #   span-metrics    — RED metrics: rate, error count, duration by service
+      #   local-blocks    — stores trace data locally for metric generation
+      processors: [service-graphs, span-metrics, local-blocks]
+
+      # generate_native_histograms: "both" means Tempo emits both classic
+      # histograms (compatible with all Prometheus versions) and native
+      # histograms (higher resolution, Prometheus 2.40+).
+      generate_native_histograms: both

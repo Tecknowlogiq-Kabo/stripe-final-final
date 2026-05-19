@@ -1,0 +1,127 @@
+# =============================================================================
+# Grafana Datasource Provisioning
+# =============================================================================
+#
+# Grafana 11.5 reads provisioning files from /etc/grafana/provisioning/ on
+# startup. This file pre-configures three datasources so dashboards work
+# out of the box — no manual setup required.
+#
+# DATASOURCE RELATIONSHIPS:
+#   Prometheus (default) → Metrics (RED dashboards, business metrics)
+#   Loki                 → Logs (correlation ID search, error log exploration)
+#   Tempo                → Traces (waterfall view, service graph)
+#
+# TRACE-TO-LOGS DRILL-DOWN:
+#   When viewing a trace span, you can click through to see the correlated
+#   log lines for that trace. This works because:
+#     1. The Pino logger injects traceId into every log line (mixin in
+#        logger.module.ts)
+#     2. Loki's derivedFields extracts trace_id from the JSON log body
+#     3. Tempo's tracesToLogsV2 links span → Loki query
+# =============================================================================
+apiVersion: 1
+
+datasources:
+  # =========================================================================
+  # Prometheus — Metrics
+  # =========================================================================
+  # The default datasource (isDefault: true). All metrics dashboards use
+  # this unless they explicitly specify a different datasource.
+  #
+  # TEMPO EXEMPLAR LINK:
+  #   When Prometheus metrics include exemplars (trace_id labels attached to
+  #   specific metric samples), clicking the metric point in a Grafana graph
+  #   opens the corresponding trace in Tempo. This requires the Tempo
+  #   datasource to be pre-configured with uid: tempo.
+  # =========================================================================
+  - name: Prometheus
+    type: prometheus
+    access: proxy                    # Grafana server proxies requests (no browser CORS needed)
+    url: http://prometheus:9090
+    isDefault: true                  # Default for new panels and explore
+    editable: false                  # Prevent accidental UI changes — edit this file instead
+    jsonData:
+      timeInterval: 15s             # Minimum step for PromQL range queries
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo      # Links exemplar trace IDs to Tempo
+    version: 1
+
+  # =========================================================================
+  # Loki — Logs
+  # =========================================================================
+  # Log datasource for exploring structured pino-roll logs shipped by Alloy.
+  #
+  # DERIVED FIELDS:
+  #   Loki can extract fields from the JSON log body and make them clickable
+  #   in the Explore UI. Here, we extract `traceId` (from pino's mixin) and
+  #   link it to the Tempo datasource.
+  #
+  #   Regex: "traceId":"(\w+)"  — matches the JSON field in pino output.
+  #   When you click a traceId value in a log line, Grafana opens Tempo with
+  #   that trace ID, showing the full distributed trace.
+  # =========================================================================
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      maxLines: 1000                # Default line limit for LogQL queries
+      derivedFields:
+        - name: trace_id
+          matcherRegex: '"traceId":"(\w+)"'     # Extract traceId from JSON body
+          url: '$${__value.raw}'                # Use the raw captured value as the URL param
+          datasourceUid: tempo                   # Link to Tempo for trace exploration
+    version: 1
+
+  # =========================================================================
+  # Tempo — Traces
+  # =========================================================================
+  # Trace datasource for exploring distributed traces from OpenTelemetry.
+  #
+  # TRACES-TO-LOGS:
+  #   The reverse of Loki's derivedFields. When viewing a span in Tempo,
+  #   clicking "View logs" searches Loki for log lines with that span's
+  #   traceId. The customQuery template uses Loki LogQL with the span's
+  #   traceId.
+  #
+  # SERVICE MAP:
+  #   Tempo generates a service graph from span data (metrics_generator →
+  #   service-graphs processor). The serviceMap config links to Prometheus
+  #   to query the generated service graph metrics.
+  #
+  # NODE GRAPH:
+  #   Enabled — shows the span dependency graph (waterfall + graph view).
+  # =========================================================================
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      # Trace → Logs drill-down:
+      # When viewing a trace, search Loki for log lines containing the
+      # same traceId. The query uses LogQL to match the JSON traceId field.
+      # Time range: ±5 minutes around the span's start time.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+        filterByTraceID: true
+        filterBySpanID: false
+        customQuery: true
+        query: '{job="stripe-api"} |~ "\\"traceId\\":\\"$${__span.traceId}\\""'
+
+      # Service graph metrics from Tempo's metrics_generator → Prometheus
+      serviceMap:
+        datasourceUid: prometheus
+
+      # Node graph visualization (span dependency graph)
+      nodeGraph:
+        enabled: true
+
+      # Hide deprecated TraceQL search syntax if any exists
+      search:
+        hideDeprecated: true
+    version: 1

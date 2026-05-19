@@ -1,0 +1,383 @@
+# =============================================================================
+# Prometheus Alerting Rules — Stripe Payments API
+# =============================================================================
+#
+# These rules are evaluated every 15s (evaluation_interval in prometheus.yml).
+# When a rule's expression evaluates to a non-empty result for the specified
+# `for` duration, Prometheus fires an alert.
+#
+# ALERT SEVERITY DEFINITIONS:
+#   critical  — Customer-facing impact. Wakes someone up.
+#   warning   — Degradation that needs attention during business hours.
+#
+# ALERT DELIVERY:
+#   Prometheus fires alerts to Alertmanager, which routes to Slack, PagerDuty,
+#   email, etc. If no Alertmanager is configured (current state), alerts are
+#   visible in the Prometheus UI at http://localhost:9090/alerts and in
+#   Grafana's Alerting UI.
+#
+# METRIC NAMING PREFIX:
+#   All custom metrics use the stripe_ prefix (set in MetricsService).
+#   Default Node.js metrics use nodejs_, process_, etc.
+# =============================================================================
+
+groups:
+  # ===========================================================================
+  # Group: API Error Rate Alerts
+  # ===========================================================================
+  # Monitors the ratio of error responses to total requests.
+  # Two thresholds:
+  #   5xx (server errors) — critical, responds faster (5m window, 5m for)
+  #   4xx (client errors) — warning, responds slower (30m window, 10m for)
+  #
+  # Why different windows?
+  #   5xx errors often indicate an acute incident (DB down, code bug) — fast
+  #   alert. 4xx errors may be a gradual increase (API deprecation, client bug)
+  #   — needs a longer window to filter transient spikes.
+  # ===========================================================================
+  - name: stripe_api_errors
+    interval: 30s
+    rules:
+      # --- High 5xx error rate ---
+      # Fires when > 5% of requests return 5xx over 5 minutes.
+      # Typical causes: unhandled exception, DB connection failure, Stripe
+      # authentication error (masked as 500).
+      - alert: HighErrorRate5xx
+        expr: |
+          (
+            sum(rate(stripe_http_errors_total{status_code=~"5.."}[5m])) by (service)
+            /
+            sum(rate(stripe_http_requests_total[5m])) by (service)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "High 5xx error rate on {{ $labels.service }}"
+          description: >
+            {{ $labels.service }} has a 5xx error rate of {{ $value | humanizePercentage }}
+            over the last 5 minutes. Threshold: 5%.
+            Check Sentry for error details and application logs in Grafana
+            (Explore → Loki → {job="stripe-api",log_type="error"}).
+
+      # --- Elevated 4xx error rate ---
+      # Fires when > 15% of requests return 4xx over 30 minutes.
+      # Could indicate: expired JWTs, validation changes breaking clients,
+      # rate limiting kicking in aggressively, or an attacker probing the API.
+      - alert: HighErrorRate4xx
+        expr: |
+          (
+            sum(rate(stripe_http_errors_total{status_code=~"4.."}[30m])) by (service)
+            /
+            sum(rate(stripe_http_requests_total[30m])) by (service)
+          ) > 0.15
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Elevated 4xx error rate on {{ $labels.service }}"
+          description: >
+            {{ $labels.service }} has a 4xx error rate of {{ $value | humanizePercentage }}
+            over the last 30 minutes. May indicate client bugs or abuse.
+            Check top 4xx routes in Grafana: sum by(route, status_code)
+            (rate(stripe_http_errors_total{status_code=~"4.."}[30m])).
+
+  # ===========================================================================
+  # Group: API Latency Alerts
+  # ===========================================================================
+  # Uses histogram_quantile on the stripe_http_request_duration_seconds histogram
+  # to detect when endpoints become slow.
+  #
+  # Why histograms and not averages?
+  #   Averages hide tail latency. If 99 requests finish in 10ms and 1 takes 5s,
+  #   the average is ~60ms — looks fine. The P99 shows the worst-case experience.
+  # ===========================================================================
+  - name: stripe_api_latency
+    interval: 30s
+    rules:
+      # --- P99 latency across all endpoints ---
+      # Fires when the 99th percentile latency exceeds 2s for 10 minutes.
+      # Two seconds is the absolute ceiling for a payments API — users will
+      # abandon the checkout flow if it takes longer.
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            rate(stripe_http_request_duration_seconds_bucket[5m])
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "P99 latency > 2s for {{ $labels.route }}"
+          description: >
+            P99 latency for route {{ $labels.route }} is {{ $value }}s
+            over the last 10 minutes. Threshold: 2s.
+            Check Oracle query performance (long-running queries), Stripe API
+            latency (Stripe status page), and event loop lag.
+
+      # --- P95 latency on payment-critical endpoints ---
+      # Fires faster (5m for) on payment routes specifically.
+      # payment-intents and setup-intents are the critical checkout path.
+      # If these are slow, customers can't pay — top priority alert.
+      - alert: PaymentLatencyDegraded
+        expr: |
+          histogram_quantile(0.95,
+            rate(stripe_http_request_duration_seconds_bucket{
+              route=~".*payment-intents.*|.*setup-intents.*"
+            }[5m])
+          ) > 1
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Payment endpoint P95 latency > 1s"
+          description: >
+            Payment endpoint {{ $labels.route }} has P95 latency of {{ $value }}s.
+            This directly impacts user experience during checkout.
+            Drill into traces: in Grafana, Tempo → search for traces with
+            duration > 1s on the payment-intents service.
+
+  # ===========================================================================
+  # Group: Oracle Database Alerts
+  # ===========================================================================
+  # Monitors the TypeORM connection pool to detect exhaustion before it impacts
+  # requests. These metrics must be published by the app (stripe_oracle_pool_*
+  # gauges — part of the business metrics additions in the implementation plan).
+  # ===========================================================================
+  - name: stripe_oracle
+    interval: 30s
+    rules:
+      # --- Connection pool > 80% ---
+      # Pool max is 20 (configured in DatabaseModule). At > 80% (16 active),
+      # only 4 connections remain. This could indicate:
+      #   - A slow query holding connections open
+      #   - A connection leak (connections not returned to pool)
+      #   - Traffic spike beyond pool capacity
+      - alert: OraclePoolExhausted
+        expr: |
+          (stripe_oracle_pool_active_connections / 20) > 0.8
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Oracle connection pool > 80% utilized"
+          description: >
+            Oracle pool has {{ $value | humanizePercentage }} of connections active.
+            Pool max is 20. New requests may be queued or rejected.
+            Check for slow queries in Grafana (Tempo traces with
+            service=stripe-api, span=oracle-query) or connection leaks
+            (pool idle count dropping to 0).
+
+      # --- Pending connection requests ---
+      # Requests waiting for a connection from the pool. Any value > 0 means
+      # the pool is saturated and requests are being delayed. > 5 means
+      # significant queue buildup.
+      - alert: OraclePoolPending
+        expr: stripe_oracle_pool_pending_requests > 5
+        for: 2m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "{{ $value }} pending Oracle connection requests"
+          description: >
+            Requests are waiting for Oracle connections.
+            Consider increasing poolMax or investigating query performance.
+
+  # ===========================================================================
+  # Group: Redis Alerts
+  # ===========================================================================
+  # Redis is critical for rate limiting (throttler via RedisThrottlerStorage),
+  # BullMQ (job queue), and caching. If Redis fails, the app fails-open on
+  # rate limiting (allows requests through), which is better than blocking all
+  # traffic but means no rate protection.
+  # ===========================================================================
+  - name: stripe_redis
+    interval: 30s
+    rules:
+      # --- Redis memory near max ---
+      # When Redis hits maxmemory, it starts evicting keys (allkeys-lru policy).
+      # Eviction degrades cache hit rate and could evict BullMQ job data.
+      # maxmemory is 256MB (set in docker-compose.prod.yml).
+      - alert: RedisMemoryHigh
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Redis memory > 80%"
+          description: >
+            Redis is using {{ $value | humanizePercentage }} of its max memory.
+            Consider increasing maxmemory or evicting stale keys.
+            Check key count: redis-cli DBSIZE
+
+      # --- Redis unreachable ---
+      # If Prometheus can't reach the Redis exporter, or if the app's health
+      # check reports Redis as down. This is a proxy check — if no Redis
+      # metrics exist at all, Redis is either down or the exporter is broken.
+      - alert: RedisDown
+        expr: absent(redis_up) == 1
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Redis is down or unreachable"
+          description: >
+            No Redis metrics available. Rate limiting and caching will be
+            degraded. The app fails-open on rate limiting (allows all
+            requests through), which prevents downtime but eliminates
+            brute-force protection. Verify: redis-cli -h <host> PING
+
+  # ===========================================================================
+  # Group: Health Check Alerts
+  # ===========================================================================
+  # The health endpoint (/api/v1/health) checks Oracle, Stripe API, and Redis.
+  # If it fails, at least one dependency is down. This is a pager-duty alert.
+  # ===========================================================================
+  - name: stripe_health
+    interval: 30s
+    rules:
+      - alert: HealthCheckFailed
+        expr: |
+          up{job="stripe-api-health"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Stripe API health check failing"
+          description: >
+            The health check endpoint has been failing for 5 minutes.
+            This means one or more of Oracle, Stripe API, or Redis is
+            unreachable from the app.
+            Troubleshooting:
+              1. pm2 status                  # Are workers running?
+              2. docker ps                   # Are Oracle/Redis containers up?
+              3. curl localhost:3001/api/v1/health  # Which check is failing?
+              4. docker logs stripe_api      # App logs
+
+  # ===========================================================================
+  # Group: Stripe Webhook Alerts
+  # ===========================================================================
+  # Webhooks are the critical data pipeline from Stripe to our database.
+  # If webhook processing fails, our DB goes stale — we don't know about
+  # payments, subscription changes, or disputes.
+  #
+  # BullMQ flow:
+  #   1. Webhook arrives → added to queue
+  #   2. Worker picks up job → calls handler
+  #   3. On failure → retry (3 attempts with backoff)
+  #   4. After 3 failures → dead-letter queue (DLQ)
+  #
+  # These alerts fire when the DLQ is non-empty or the failure rate spikes.
+  # ===========================================================================
+  - name: stripe_webhooks
+    interval: 30s
+    rules:
+      # --- Dead-letter queue has entries ---
+      # Any non-zero DLQ means some webhook events have exhausted all retries
+      # and are sitting unprocessed. These events represent lost/unknown
+      # customer state. Manual intervention is required.
+      - alert: WebhookDLQGrown
+        expr: stripe_webhook_dlq_depth > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "{{ $value }} webhook events in dead-letter queue"
+          description: >
+            Webhook events have exhausted all retries and are in the DLQ.
+            These events are NOT being processed — customers may have
+            stale data (missing payment confirmations, unapplied refunds,
+            expired subscriptions still showing as active).
+            Action:
+              1. Check BullMQ dashboard or redis-cli for DLQ entries
+              2. Identify the event type and failure reason in logs
+              3. Fix the root cause (e.g., DB constraint violation)
+              4. Re-enqueue the DLQ entries manually
+
+      # --- High webhook failure rate ---
+      # > 5% of webhook jobs failing over 15 minutes. Indicates a systemic
+      # issue: DB down, code bug introduced in deploy, Stripe API version
+      # mismatch, or schema change breaking handlers.
+      - alert: WebhookFailureRate
+        expr: |
+          (
+            sum(rate(stripe_webhook_events_total{status="failed"}[15m]))
+            /
+            sum(rate(stripe_webhook_events_total[15m]))
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "> 5% webhook failure rate"
+          description: >
+            Webhook processing is failing at {{ $value | humanizePercentage }}.
+            This means Stripe events are being dropped or retried excessively.
+            Check webhook processor logs (Grafana → Loki → {job="stripe-api"}
+            |= "WebhookProcessor") and BullMQ queue depth.
+
+  # ===========================================================================
+  # Group: Node.js Runtime & PM2 Alerts
+  # ===========================================================================
+  # Monitors the Node.js process health (heap, event loop) and PM2 behavior
+  # (restart loops). These require collectDefaultMetrics() in prom-client,
+  # which is already enabled in MetricsService.
+  # ===========================================================================
+  - name: stripe_nodejs
+    interval: 30s
+    rules:
+      # --- PM2 restart loop ---
+      # If PM2 restarts the app more than once every 10 seconds (~0.1 restarts/s),
+      # the app is likely crashing on startup. This could be:
+      #   - Bad deploy (missing env var, broken migration)
+      #   - Oracle connection failure at bootstrap (no retry)
+      #   - Syntax error in deployed code
+      # PM2 will keep trying (max_restarts: 10) then stop. This alert fires
+      # well before that to give time to intervene.
+      - alert: PM2RestartLoop
+        expr: |
+          rate(stripe_process_restarts_total[10m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Stripe API may be in a restart loop"
+          description: >
+            PM2 has restarted the app {{ $value }} times per second over
+            10 minutes. The app is likely crashing on startup or hitting
+            max_memory_restart repeatedly.
+            Check: pm2 logs stripe-api --lines 100
+
+      # --- Node.js heap near limit ---
+      # The PM2 config sets max_memory_restart: 512M and NODE_OPTIONS:
+      # --max-old-space-size=512. When heap exceeds 90% of total, the GC
+      # runs more frequently, increasing latency. At 100%, PM2 kills the
+      # worker. This alert gives early warning.
+      - alert: HighMemoryUsage
+        expr: |
+          stripe_nodejs_heap_used_bytes / stripe_nodejs_heap_total_bytes > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Node.js heap > 90% utilized"
+          description: >
+            Node.js heap memory is critically high ({{ $value | humanizePercentage }}).
+            This may trigger a PM2 restart soon (max_memory_restart: 512M).
+            Check for memory leaks: take a heap snapshot
+            (node --inspect + Chrome DevTools) and look at
+            Grafana → Prometheus → stripe_nodejs_heap_used_bytes over 24h.

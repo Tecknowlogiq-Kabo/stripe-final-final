@@ -1,0 +1,95 @@
+// ===========================================================================
+// Alloy Configuration — Log Shipper
+// ===========================================================================
+//
+// Grafana Alloy tails the pino-roll log files on the EC2 host filesystem
+// and ships them to Loki. It replaces Promtail with the same file-tail
+// semantics but adds support for metrics and traces (if needed later).
+//
+// LOG FLOW:
+//   Pino (app) → stdout + pino-roll files on disk
+//                       ↓
+//               Alloy tails: /var/log/app/combined.*.log
+//                            /var/log/app/error.*.log
+//                       ↓
+//               Ships to:  http://loki:3100/loki/api/v1/push
+//
+// WHY FILE-BASED INSTEAD OF A PINO → LOKI TRANSPORT:
+//   - Decoupled: if Alloy goes down, logs are still written to disk by
+//     pino-roll. No log loss.
+//   - Zero app overhead: no extra HTTP calls or buffering in the Node.js
+//     process per log line.
+//   - Alloy handles batching, compression, retries, and backpressure.
+//   - pino-roll already handles rotation; Alloy only ships.
+//
+// LABELS:
+//   Alloy attaches labels to each log stream. These become Loki stream
+//   labels and are the primary way to filter logs in LogQL queries.
+//
+//   job: "stripe-api"      → Identifies this log source
+//   app: "stripe-api"      → Application identifier
+//   log_type: "combined"   → All log levels (debug, info, warn, error)
+//   log_type: "error"      → Error level only (pino-roll error log)
+//   host: "stripe-ec2-production"  → Host identifier (added by loki.write)
+// ===========================================================================
+
+// Tails pino-roll log files using glob patterns.
+// pino-roll rotates files as: combined.2026-05-19.log, combined.2026-05-19.1.log, etc.
+// The glob pattern combined.*.log matches all rotation files.
+loki.source.file "app_logs" {
+  targets = [
+    // Combined log — all log levels (info, warn, error, debug).
+    // Shipped to Loki with log_type="combined".
+    {
+      __path__  = "/var/log/app/combined.*.log",
+      job       = "stripe-api",
+      app       = "stripe-api",
+      log_type  = "combined",
+    },
+    // Error log — only error-level messages (pino-roll target with level: 'error').
+    // Shipped to Loki with log_type="error".
+    // Loki's retention configuration keeps error logs for 90 days (vs. 30 for combined).
+    {
+      __path__  = "/var/log/app/error.*.log",
+      job       = "stripe-api",
+      app       = "stripe-api",
+      log_type  = "error",
+    },
+  ]
+
+  // Forward to the Loki write receiver defined below.
+  forward_to = [loki.write.loki.receiver]
+}
+
+// ===========================================================================
+// Loki Write — push structured logs to Loki
+// ===========================================================================
+// Configures the Loki push endpoint and adds external labels.
+// Alloy handles batching, compression (snappy), retries, and TLS
+// automatically.
+loki.write "loki" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+
+    // External labels are added to every log stream pushed to Loki.
+    // They identify the host and environment for multi-instance queries.
+    external_labels = {
+      host = "stripe-ec2-production",
+    }
+  }
+}
+
+// ===========================================================================
+// Self-monitoring — expose Alloy's own metrics
+// ===========================================================================
+// Alloy's built-in Unix exporter exposes process-level metrics (CPU, memory,
+// file descriptors) and internal pipeline metrics (bytes shipped, errors,
+// retries). These can be scraped by Prometheus to monitor Alloy itself.
+//
+// To scrape, add to prometheus.yml:
+//   - job_name: alloy
+//     static_configs:
+//       - targets: ['alloy:12345']
+prometheus.exporter.unix "default" {
+  include_exporter_metrics = true
+}
