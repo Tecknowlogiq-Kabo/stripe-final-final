@@ -78,7 +78,9 @@ export class TrustIdResultHandler {
       return;
     }
 
-    const s3Prefix = `trust-approved/${containerId}`;
+    const s3Prefix = trustToken.userId
+      ? `users/${trustToken.userId}/trust-approved/${containerId}`
+      : `trust-approved/${containerId}`;
     let totalBytes = 0;
 
     try {

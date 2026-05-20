@@ -13,6 +13,7 @@ import {
 import { Response } from 'express';
 import { TrustIdService } from './trustid.service';
 import { TrustService } from '../trust/trust.service';
+import { TrustRepository } from '../trust/trust.repository';
 import { CreateGuestLinkDto } from './dto/create-guest-link.dto';
 import { CurrentUser, JwtUser } from '../auth/decorators/current-user.decorator';
 
@@ -23,6 +24,7 @@ export class TrustIdController {
   constructor(
     private readonly trustIdService: TrustIdService,
     private readonly trustService: TrustService,
+    private readonly trustRepo: TrustRepository,
   ) {}
 
   @Post('guest-link')
@@ -50,12 +52,29 @@ export class TrustIdController {
     const trustToken = await this.trustService.generateTrustToken(
       dto.resourceType ?? 'trustid-check',
       dto.resourceId ?? result.containerId,
+      user.email,
       user.id,
       { trustidLinkId: result.linkId, trustidContainerId: result.containerId, trustidGuestLink: result.guestLinkUrl, email: dto.email, name: dto.name, ...(dto.metadata ?? {}) },
       dto.sendEmail === false ? 7 * 24 * 3600 : undefined,
     );
 
     return { trustId: trustToken.trustId, guestLink: result.guestLinkUrl, containerId: result.containerId, linkId: result.linkId };
+  }
+
+  @Get('tokens')
+  async getMyTokens(@CurrentUser() user: JwtUser) {
+    const tokens = await this.trustRepo.findByUserId(user.id);
+    return {
+      tokens: tokens.map((t) => ({
+        id: t.id,
+        resourceType: t.resourceType,
+        resourceId: t.resourceId,
+        status: t.status,
+        expiresAt: t.expiresAt?.toISOString?.() ?? t.expiresAt,
+        metadata: t.metadata ? JSON.parse(t.metadata) : null,
+        createdAt: t.createdAt?.toISOString?.() ?? t.createdAt,
+      })),
+    };
   }
 
   @Get('branches')

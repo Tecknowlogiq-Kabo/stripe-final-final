@@ -45,6 +45,7 @@ export class TrustService {
     resourceType: string,
     resourceId: string | undefined,
     createdBy: string | undefined,
+    userId: string | undefined,
     metadata: Record<string, unknown> | undefined,
     ttlSec?: number,
     email?: string,
@@ -115,6 +116,7 @@ export class TrustService {
       resourceId,
       expiresAt,
       createdBy,
+      userId,
       metadata ? JSON.stringify(metadata) : undefined,
     );
 
@@ -209,7 +211,11 @@ export class TrustService {
         const meta = JSON.parse(record.metadata) as Record<string, unknown>;
         if (meta.sourceUrl && typeof meta.sourceUrl === 'string') {
           const s3Prefix = this.configService.get<string>('aws.s3TrustPrefix') ?? 'trust-approved/';
-          const destKey = `${s3Prefix}${record.resourceId ?? record.id}/${record.id}`;
+          const baseKey = `${s3Prefix}${record.resourceId ?? record.id}/${record.id}`;
+          // User-scoped path if we have a userId
+          const destKey = record.userId
+            ? `users/${record.userId}/${baseKey}`
+            : baseKey;
           s3Result = await this.s3Service.pullAndStore(meta.sourceUrl, destKey, meta.contentType as string | undefined);
           this.logger.log({
             message: 'Trust-approved file stored in S3',

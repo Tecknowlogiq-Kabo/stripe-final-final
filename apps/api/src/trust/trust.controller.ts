@@ -34,7 +34,8 @@ export class TrustController {
     const result = await this.trustService.generateTrustToken(
       dto.resourceType,
       dto.resourceId,
-      undefined,
+      undefined, // createdBy
+      undefined, // userId (no auth context on public token creation)
       dto.metadata,
       dto.ttlSeconds,
       dto.email,

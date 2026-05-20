@@ -35,6 +35,9 @@ export class TrustToken {
   @Column({ name: 'EXPIRES_AT', type: 'timestamp' })
   expiresAt: Date;
 
+  @Column({ name: 'USER_ID', type: 'varchar2', length: 36, nullable: true })
+  userId?: string;
+
   @Column({ name: 'CREATED_BY', type: 'varchar2', length: 100, nullable: true })
   createdBy?: string;
 
