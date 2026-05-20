@@ -65,20 +65,21 @@ export function PaymentHistoryPreview({
   limit = 3,
   focusPaymentIntentId,
 }: PaymentHistoryPreviewProps) {
-  const { data: myCustomer, isPending: isCustomerLoading, isError: isCustomerError, error: customerError } = useMyCustomer();
+  const { data: myCustomer, isLoading: isCustomerLoading, isError: isCustomerError, error: customerError } = useMyCustomer();
   const customerId = myCustomer?.id ?? '';
 
-  const { data: response, isPending, isError, isFetching, refetch } = useCustomerPaymentIntents(
+  const { data: response, isLoading, isError, isFetching, refetch } = useCustomerPaymentIntents(
     { customerId, page: 1, limit },
   );
 
   const isMissingCustomer =
     isCustomerError &&
-    customerError instanceof Error &&
+    customerError &&
+    typeof customerError === 'object' &&
     'status' in customerError &&
     (customerError as { status?: number }).status === 404;
 
-  const showLoading = isCustomerLoading || isPending || isFetching;
+  const showLoading = isCustomerLoading || isLoading || isFetching;
 
   return (
     <section className="card">

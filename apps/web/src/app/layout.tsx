@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
-import { QueryProvider } from '@/providers/QueryProvider';
+import { StoreProvider } from '@/providers/StoreProvider';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { cookies } from 'next/headers';
 
@@ -32,7 +32,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} ${jetbrainsMono.variable} bg-zinc-950 text-zinc-100 antialiased`}>
-        <QueryProvider>
+        <StoreProvider>
           {isAuthenticated ? (
             <>
               <Sidebar />
@@ -43,7 +43,7 @@ export default function RootLayout({
           ) : (
             <main className="min-h-screen bg-zinc-950">{children}</main>
           )}
-        </QueryProvider>
+        </StoreProvider>
       </body>
     </html>
   );

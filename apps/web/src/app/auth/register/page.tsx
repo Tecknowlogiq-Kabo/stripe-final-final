@@ -2,26 +2,25 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useRegister } from '@/features/auth/auth.hooks';
+import { useRegisterMutation } from '@/features/auth/auth-api-slice';
+import { getErrorMessage } from '@/lib/rtk-errors';
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { mutate: register, isPending, error } = useRegister();
+  const [register, { isLoading, error }] = useRegisterMutation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    register(
-      { email, password },
-      {
-        onSuccess: () => {
-          const raw = new URLSearchParams(window.location.search).get('redirect') ?? '/';
-          const redirectTo = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
-          router.push(redirectTo);
-        },
-      },
-    );
+    try {
+      await register({ email, password }).unwrap();
+      const raw = new URLSearchParams(window.location.search).get('redirect') ?? '/';
+      const redirectTo = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
+      router.push(redirectTo);
+    } catch {
+      // error handled via `error` state
+    }
   };
 
   return (
@@ -71,11 +70,11 @@ export default function RegisterPage() {
             </div>
             {error && (
               <div role="alert" className="alert-error">
-                {error.message}
+                {getErrorMessage(error)}
               </div>
             )}
-            <button type="submit" disabled={isPending} className="btn-primary w-full">
-              {isPending ? 'Creating account…' : 'Create account'}
+            <button type="submit" disabled={isLoading} className="btn-primary w-full">
+              {isLoading ? 'Creating account…' : 'Create account'}
             </button>
           </form>
           <p className="mt-5 text-sm text-center text-zinc-500">

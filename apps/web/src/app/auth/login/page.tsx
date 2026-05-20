@@ -2,26 +2,25 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useLogin } from '@/features/auth/auth.hooks';
+import { useLoginMutation } from '@/features/auth/auth-api-slice';
+import { getErrorMessage } from '@/lib/rtk-errors';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { mutate: login, isPending, error } = useLogin();
+  const [login, { isLoading, error }] = useLoginMutation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    login(
-      { email, password },
-      {
-        onSuccess: () => {
-          const raw = new URLSearchParams(window.location.search).get('redirect') ?? '/';
-          const redirectTo = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
-          router.push(redirectTo);
-        },
-      },
-    );
+    try {
+      await login({ email, password }).unwrap();
+      const raw = new URLSearchParams(window.location.search).get('redirect') ?? '/';
+      const redirectTo = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
+      router.push(redirectTo);
+    } catch {
+      // error handled via `error` state
+    }
   };
 
   return (
@@ -69,11 +68,11 @@ export default function LoginPage() {
             </div>
             {error && (
               <div role="alert" className="alert-error">
-                {error.message}
+                {getErrorMessage(error)}
               </div>
             )}
-            <button type="submit" disabled={isPending} className="btn-primary w-full">
-              {isPending ? 'Signing in…' : 'Sign in'}
+            <button type="submit" disabled={isLoading} className="btn-primary w-full">
+              {isLoading ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
           <p className="mt-5 text-sm text-center text-zinc-500">

@@ -13,7 +13,7 @@ type Step = 'select' | 'payment';
 export default function CheckoutPage() {
   const router = useRouter();
 
-  const { data: myCustomer, isPending: isLoadingCustomer } = useMyCustomer();
+  const { data: myCustomer, isLoading: isLoadingCustomer } = useMyCustomer();
   const customerId = myCustomer?.id;
 
   const [step, setStep] = useState<Step>('select');

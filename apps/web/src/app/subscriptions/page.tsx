@@ -82,10 +82,10 @@ function SubscriptionCard({ sub, onUpdate, isUpdating }: {
 }
 
 export default function SubscriptionsPage() {
-  const { data: plans = [], isPending: plansLoading, isError } = useSubscriptionPlans();
+  const { data: plans = [], isLoading: plansLoading, isError } = useSubscriptionPlans();
   const { data: myCustomer } = useMyCustomer();
-  const { data: activeSubscriptions = [], isPending: subsLoading } = useCustomerSubscriptions(myCustomer?.id ?? '');
-  const { mutate: updateSub, isPending: isUpdating } = useUpdateSubscription();
+  const { data: activeSubscriptions = [], isLoading: subsLoading } = useCustomerSubscriptions(myCustomer?.id ?? '');
+  const [updateSub, { isLoading: isUpdating }] = useUpdateSubscription();
   const [portalLoading, setPortalLoading] = useState(false);
 
   const handleManageBilling = async () => {

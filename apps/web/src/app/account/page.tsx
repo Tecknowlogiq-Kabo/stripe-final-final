@@ -2,13 +2,20 @@
 
 import { useState, useEffect } from 'react';
 import { useMyCustomer, useCreateCustomer, useUpdateCustomer } from '@/features/customers/customers.hooks';
-import { ApiError } from '@/lib/api-client';
+import { getErrorMessage } from '@/lib/rtk-errors';
+
+function isNotFound(error: unknown): boolean {
+  if (error && typeof error === 'object' && 'status' in error) {
+    return (error as { status: number }).status === 404;
+  }
+  return false;
+}
 
 export default function AccountPage() {
-  const { data: customer, isError, error, isPending } = useMyCustomer();
-  const noCustomer = isError && error instanceof ApiError && (error as ApiError).status === 404;
+  const { data: customer, isError, error, isLoading } = useMyCustomer();
+  const noCustomer = isError && isNotFound(error);
 
-  if (isPending) {
+  if (isLoading) {
     return (
       <div>
         <div className="mb-8">
@@ -50,7 +57,7 @@ export default function AccountPage() {
 }
 
 function CreateCustomerForm() {
-  const { mutate: create, isPending, error } = useCreateCustomer();
+  const [create, { isLoading, error }] = useCreateCustomer();
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -107,9 +114,9 @@ function CreateCustomerForm() {
             className="input-field"
           />
         </div>
-        {error && <p className="text-sm text-red-400">{error.message}</p>}
-        <button type="submit" disabled={isPending} className="btn-primary w-full">
-          {isPending ? 'Creating…' : 'Create billing profile'}
+        {error && <p className="text-sm text-red-400">{getErrorMessage(error)}</p>}
+        <button type="submit" disabled={isLoading} className="btn-primary w-full">
+          {isLoading ? 'Creating…' : 'Create billing profile'}
         </button>
       </form>
     </div>
@@ -117,7 +124,7 @@ function CreateCustomerForm() {
 }
 
 function EditCustomerForm({ customer }: { customer: { id: string; email: string; name?: string; phone?: string } }) {
-  const { mutate: update, isPending, error, isSuccess } = useUpdateCustomer();
+  const [update, { isLoading, error, isSuccess }] = useUpdateCustomer();
   const [name, setName] = useState(customer.name ?? '');
   const [phone, setPhone] = useState(customer.phone ?? '');
 
@@ -167,10 +174,10 @@ function EditCustomerForm({ customer }: { customer: { id: string; email: string;
             className="input-field"
           />
         </div>
-        {error && <p className="text-sm text-red-400">{error.message}</p>}
+        {error && <p className="text-sm text-red-400">{getErrorMessage(error)}</p>}
         {isSuccess && <p className="text-sm text-green-400">Profile updated.</p>}
-        <button type="submit" disabled={isPending} className="btn-primary">
-          {isPending ? 'Saving…' : 'Save changes'}
+        <button type="submit" disabled={isLoading} className="btn-primary">
+          {isLoading ? 'Saving…' : 'Save changes'}
         </button>
       </form>
     </div>

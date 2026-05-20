@@ -1,25 +1,21 @@
 import { LoggerModule } from 'nestjs-pino';
 import { trace } from '@opentelemetry/api';
 import { v4 as uuidv4 } from 'uuid';
+import { sanitizeFields, sanitizePath } from './sanitize';
 import type { IncomingMessage } from 'http';
 
 export const PinoLoggerModule = LoggerModule.forRootAsync({
   useFactory: () => ({
     pinoHttp: {
-      // Auto-log every request/response — replaces LoggingInterceptor
       autoLogging: true,
-      // Resolve request ID from incoming header or generate a new UUID.
-      // CorrelationIdMiddleware runs first and sets req.id, so pino-http
-      // picks it up via genReqId and binds it to every log line in the request.
       genReqId: (req: IncomingMessage) => (req.id as string | undefined) ?? uuidv4(),
-      // Inject active OpenTelemetry trace/span IDs into every log record
       mixin: () => {
         const span = trace.getActiveSpan();
         if (!span) return {};
         const { traceId, spanId } = span.spanContext();
         return { traceId, spanId };
       },
-      // Redact sensitive headers and query params from request/response log lines
+      // Redact sensitive headers + query params via pino's built-in redaction
       redact: {
         paths: [
           'req.headers.authorization',
@@ -49,15 +45,20 @@ export const PinoLoggerModule = LoggerModule.forRootAsync({
               ],
             },
       level: process.env.LOG_LEVEL ?? 'info',
-      // Serialize request and response with concise fields
+      // Serializers with PCI-compliant field redaction
       serializers: {
         req(req: IncomingMessage) {
+          const body = sanitizeFields(((req as unknown as Record<string, unknown>).body ?? {}) as Record<string, unknown>);
           return {
             id: req.id,
             method: req.method,
-            url: req.url,
+            url: sanitizePath(req.url ?? ''),
             remoteAddress: req.socket?.remoteAddress,
+            body,
           };
+        },
+        res(res: { statusCode: number }) {
+          return { statusCode: res.statusCode };
         },
       },
     },

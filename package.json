@@ -1,7 +1,10 @@
 {
   "name": "stripe-integration",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
@@ -13,8 +16,21 @@
   },
   "packageManager": "npm@10.9.2",
   "devDependencies": {
+    "@types/node": "^22.9.0",
     "turbo": "^2.3.3",
-    "typescript": "^5.6.3",
-    "@types/node": "^22.9.0"
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "@jenniferplusplus/opentelemetry-instrumentation-bullmq": "^0.5.1",
+    "@opentelemetry/host-metrics": "^0.38.3",
+    "@opentelemetry/instrumentation-express": "^0.66.0",
+    "@opentelemetry/instrumentation-fetch": "^0.218.0",
+    "@opentelemetry/instrumentation-fs": "^0.37.0",
+    "@opentelemetry/instrumentation-http": "^0.218.0",
+    "@opentelemetry/instrumentation-ioredis": "^0.66.0",
+    "@opentelemetry/instrumentation-nestjs-core": "^0.64.0",
+    "@opentelemetry/instrumentation-oracledb": "^0.43.0",
+    "@opentelemetry/instrumentation-pg": "^0.70.0",
+    "@opentelemetry/instrumentation-redis": "^0.66.0"
   }
 }

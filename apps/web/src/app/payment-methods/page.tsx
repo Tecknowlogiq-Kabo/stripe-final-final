@@ -87,9 +87,9 @@ export default function PaymentMethodsPage() {
   const { data: myCustomer } = useMyCustomer();
   const customerId = myCustomer?.id ?? '';
 
-  const { data: paymentMethods = [], isPending, isFetching, refetch } = useCustomerPaymentMethods(customerId);
-  const { mutate: detach, isPending: isDetaching } = useDetachPaymentMethod();
-  const { mutate: setDefault, isPending: isSettingDefault } = useSetDefaultPaymentMethod();
+  const { data: paymentMethods = [], isLoading, isFetching, refetch } = useCustomerPaymentMethods(customerId);
+  const [detach, { isLoading: isDetaching }] = useDetachPaymentMethod();
+  const [setDefault, { isLoading: isSettingDefault }] = useSetDefaultPaymentMethod();
 
   const handleAddNew = async () => {
     if (!customerId) return;
@@ -185,7 +185,7 @@ export default function PaymentMethodsPage() {
         </div>
       )}
 
-      {isPending || isFetching ? (
+      {isLoading || isFetching ? (
         <div className="space-y-2">
           {[1, 2].map((i) => (
             <div key={i} className="card animate-pulse flex items-center gap-4 py-4">

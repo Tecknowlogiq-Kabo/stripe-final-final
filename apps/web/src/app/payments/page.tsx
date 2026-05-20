@@ -45,7 +45,7 @@ export default function PaymentsPage() {
   const { data: myCustomer } = useMyCustomer();
   const customerId = myCustomer?.id ?? '';
 
-  const { data: response, isPending, isError, isFetching, refetch } = useCustomerPaymentIntents(
+  const { data: response, isLoading, isError, isFetching, refetch } = useCustomerPaymentIntents(
     { customerId, page, limit },
   );
 
@@ -101,7 +101,7 @@ export default function PaymentsPage() {
       )}
 
       <div className="card p-0 overflow-hidden">
-        {isPending || isFetching ? (
+        {isLoading || isFetching ? (
           <div className="p-6 space-y-3">
             {[1, 2, 3].map((i) => (
               <div key={i} className="animate-pulse flex items-center gap-4 py-2">

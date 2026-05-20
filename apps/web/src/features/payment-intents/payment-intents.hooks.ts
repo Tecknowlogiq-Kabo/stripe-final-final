@@ -1,17 +1,9 @@
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import { paymentIntentsService } from './payment-intents.service';
-import type { GetCustomerPaymentIntentsParams } from './payment-intents.types';
+// Re-export from RTK Query api slice
+// RTK Query keeps previous data in cache automatically while fetching new args.
+// Use `isFetching` to show a loading indicator while `data` still holds the previous page.
 
-export const paymentIntentKeys = {
-  byCustomer: (params: GetCustomerPaymentIntentsParams) =>
-    ['payment-intents', 'customer', params.customerId, params.page, params.limit, params.status] as const,
-};
+import { paymentIntentKeys } from './payment-intents-keys';
 
-export function useCustomerPaymentIntents(params: GetCustomerPaymentIntentsParams) {
-  return useQuery({
-    queryKey: paymentIntentKeys.byCustomer(params),
-    queryFn:  () => paymentIntentsService.listByCustomer(params),
-    enabled:  !!params.customerId,
-    placeholderData: keepPreviousData, // keep previous data while fetching next page
-  });
-}
+export { paymentIntentKeys };
+
+export { useCustomerPaymentIntentsQuery as useCustomerPaymentIntents } from './payment-intents-api-slice';
