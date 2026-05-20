@@ -35,6 +35,27 @@ export class SubscriptionHandler {
           trialEnd: subscription.trial_end,
         });
         break;
+
+      case 'customer.subscription.pending_update_applied':
+        // A scheduled update has been applied — re-sync to reflect new state
+        await this.subscriptionsService.syncFromStripeEvent(subscription);
+        this.logger.log({
+          message: 'Pending subscription update applied',
+          stripeSubscriptionId: subscription.id,
+          currentPeriodEnd: subscription.current_period_end,
+        });
+        break;
+
+      case 'customer.subscription.pending_update_expired':
+        // A scheduled update expired without being applied
+        this.logger.log({
+          message: 'Pending subscription update expired',
+          stripeSubscriptionId: subscription.id,
+          pendingUpdate: subscription.pending_update
+            ? JSON.stringify(subscription.pending_update)
+            : undefined,
+        });
+        break;
     }
   }
 }

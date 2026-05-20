@@ -53,6 +53,14 @@ export class PaymentIntentHandler {
       case 'payment_intent.requires_action':
         await this.paymentIntentsService.updateStatus(pi.id, 'requires_action');
         break;
+
+      case 'payment_intent.amount_capturable_updated':
+        this.logger.log({
+          message: 'PaymentIntent amount capturable updated',
+          stripePaymentIntentId: pi.id,
+          amountCapturable: pi.amount_capturable,
+        });
+        break;
     }
   }
 }

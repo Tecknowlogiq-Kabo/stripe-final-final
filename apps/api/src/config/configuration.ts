@@ -44,4 +44,16 @@ export default () => ({
   encryption: {
     key: process.env.ENCRYPTION_KEY,
   },
+  aws: {
+    region: process.env.AWS_REGION ?? 'us-east-1',
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    s3Bucket: process.env.S3_BUCKET ?? 'stripe-trust-files',
+    s3TrustPrefix: process.env.S3_TRUST_PREFIX ?? 'trust-approved/',
+  },
+  trust: {
+    jwtSecret: process.env.TRUST_JWT_SECRET ?? process.env.JWT_SECRET,
+    tokenTtlSeconds: parseInt(process.env.TRUST_TOKEN_TTL_SECONDS ?? '86400', 10),
+    guestLinkBaseUrl: process.env.TRUST_GUEST_LINK_BASE_URL ?? 'http://localhost:3000',
+  },
 });

@@ -17,15 +17,25 @@ export class PaymentMethodHandler {
       type: pm.type,
     });
 
-    switch (event.type) {
-      case 'payment_method.attached':
-      case 'payment_method.updated':
-        await this.paymentMethodsService.upsertFromStripeEvent(pm);
-        break;
+    // Use if/else chain instead of switch for broader type compatibility.
+    // Stripe SDK may not include all event types (e.g. card_automatically_updated)
+    // in the Event.type union, causing switch narrowing to 'never'.
+    const type = event.type as string;
 
-      case 'payment_method.detached':
-        await this.paymentMethodsService.removeByStripeId(pm.id);
-        break;
+    if (type === 'payment_method.attached' || type === 'payment_method.updated') {
+      await this.paymentMethodsService.upsertFromStripeEvent(pm);
+    } else if (type === 'payment_method.detached') {
+      await this.paymentMethodsService.removeByStripeId(pm.id);
+    } else if (type === 'payment_method.card_automatically_updated') {
+      await this.paymentMethodsService.upsertFromStripeEvent(pm);
+      const dataWithPrev = event.data as { previous_attributes?: Record<string, unknown> };
+      this.logger.log({
+        message: 'Card automatically updated (card account updater)',
+        stripePaymentMethodId: pm.id,
+        previousAttributes: dataWithPrev.previous_attributes
+          ? JSON.stringify(dataWithPrev.previous_attributes)
+          : undefined,
+      });
     }
   }
 }

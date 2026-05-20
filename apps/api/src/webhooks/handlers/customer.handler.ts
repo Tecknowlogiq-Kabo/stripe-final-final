@@ -54,6 +54,42 @@ export class CustomerHandler {
           // Customer not in our DB — nothing to do
         }
         break;
+
+      case 'customer.discount.created': {
+        const discount = event.data.object as Stripe.Discount;
+        const coupon = discount.coupon as Stripe.Coupon;
+        const customerId = typeof discount.customer === 'string'
+          ? discount.customer
+          : discount.customer?.id ?? 'unknown';
+        this.logger.log({
+          message: 'Customer discount created',
+          stripeCustomerId: customerId,
+          couponId: coupon.id,
+          couponName: coupon.name,
+          percentOff: coupon.percent_off,
+          amountOff: coupon.amount_off,
+          duration: coupon.duration,
+        });
+        break;
+      }
+
+      case 'customer.discount.deleted': {
+        const discount = event.data.object as Stripe.Discount;
+        const coupon = discount.coupon as Stripe.Coupon;
+        const customerId = typeof discount.customer === 'string'
+          ? discount.customer
+          : discount.customer?.id ?? 'unknown';
+        this.logger.log({
+          message: 'Customer discount deleted',
+          stripeCustomerId: customerId,
+          couponId: coupon.id,
+          couponName: coupon.name,
+          percentOff: coupon.percent_off,
+          amountOff: coupon.amount_off,
+          duration: coupon.duration,
+        });
+        break;
+      }
     }
   }
 }

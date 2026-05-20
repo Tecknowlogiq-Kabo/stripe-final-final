@@ -32,4 +32,12 @@ export const validationSchema = Joi.object({
   OTEL_EXPORTER_OTLP_ENDPOINT: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://localhost:4318'),
   OTEL_TRACES_SAMPLER: Joi.string().valid('always_on', 'parentbased_traceidratio').optional(),
   OTEL_TRACES_SAMPLER_ARG: Joi.string().optional(),
+  AWS_REGION: Joi.string().default('us-east-1'),
+  AWS_ACCESS_KEY_ID: Joi.string().optional(),
+  AWS_SECRET_ACCESS_KEY: Joi.string().optional(),
+  S3_BUCKET: Joi.string().default('stripe-trust-files'),
+  S3_TRUST_PREFIX: Joi.string().default('trust-approved/'),
+  TRUST_JWT_SECRET: Joi.string().min(32).optional(),
+  TRUST_TOKEN_TTL_SECONDS: Joi.number().default(86400),
+  TRUST_GUEST_LINK_BASE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://localhost:3000'),
 });

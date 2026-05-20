@@ -17,7 +17,11 @@ import { InvoiceHandler } from './handlers/invoice.handler';
 import { PaymentMethodHandler } from './handlers/payment-method.handler';
 import { CustomerHandler } from './handlers/customer.handler';
 import { MandateHandler } from './handlers/mandate.handler';
+import { ChargeHandler } from './handlers/charge.handler';
+import { RadarHandler } from './handlers/radar.handler';
+import { AccountHandler } from './handlers/account.handler';
 import { WebhookSignatureGuard } from '../common/guards/webhook-signature.guard';
+import { AuditModule } from '../audit/audit.module';
 import { WEBHOOK_QUEUE, WEBHOOK_DLQ } from './webhook-queue.constants';
 
 @Module({
@@ -53,6 +57,7 @@ import { WEBHOOK_QUEUE, WEBHOOK_DLQ } from './webhook-queue.constants';
     SetupIntentsModule,
     PaymentMethodsModule,
     SubscriptionsModule,
+    AuditModule,
   ],
   controllers: [WebhooksController],
   providers: [
@@ -66,6 +71,9 @@ import { WEBHOOK_QUEUE, WEBHOOK_DLQ } from './webhook-queue.constants';
     PaymentMethodHandler,
     CustomerHandler,
     MandateHandler,
+    ChargeHandler,
+    RadarHandler,
+    AccountHandler,
     WebhookSignatureGuard,
   ],
 })

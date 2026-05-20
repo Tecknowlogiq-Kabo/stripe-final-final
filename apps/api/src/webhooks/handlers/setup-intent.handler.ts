@@ -38,6 +38,15 @@ export class SetupIntentHandler {
       case 'setup_intent.canceled':
         await this.setupIntentsService.updateStatus(si.id, 'canceled');
         break;
+
+      case 'setup_intent.requires_action':
+        await this.setupIntentsService.updateStatus(si.id, 'requires_action');
+        this.logger.log({
+          message: 'SetupIntent requires action',
+          stripeSetupIntentId: si.id,
+          nextAction: si.next_action ? JSON.stringify(si.next_action) : undefined,
+        });
+        break;
     }
   }
 }

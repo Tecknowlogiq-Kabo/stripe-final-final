@@ -11,6 +11,9 @@ import { InvoiceHandler } from './handlers/invoice.handler';
 import { PaymentMethodHandler } from './handlers/payment-method.handler';
 import { CustomerHandler } from './handlers/customer.handler';
 import { MandateHandler } from './handlers/mandate.handler';
+import { ChargeHandler } from './handlers/charge.handler';
+import { RadarHandler } from './handlers/radar.handler';
+import { AccountHandler } from './handlers/account.handler';
 import { WEBHOOK_QUEUE } from './webhook-queue.constants';
 import { WebhooksRepository } from './webhooks.repository';
 import { EncryptionService } from '../crypto/encryption.service';
@@ -41,6 +44,9 @@ export class WebhooksService {
     private readonly paymentMethodHandler: PaymentMethodHandler,
     private readonly customerHandler: CustomerHandler,
     private readonly mandateHandler: MandateHandler,
+    private readonly chargeHandler: ChargeHandler,
+    private readonly radarHandler: RadarHandler,
+    private readonly accountHandler: AccountHandler,
     private readonly encryption: EncryptionService,
   ) {
     this.handlerRegistry = new Map<string, WebhookHandler>([
@@ -49,27 +55,45 @@ export class WebhooksService {
       ['payment_intent.canceled', paymentIntentHandler],
       ['payment_intent.processing', paymentIntentHandler],
       ['payment_intent.requires_action', paymentIntentHandler],
+      ['payment_intent.amount_capturable_updated', paymentIntentHandler],
       ['setup_intent.succeeded', setupIntentHandler],
       ['setup_intent.setup_failed', setupIntentHandler],
       ['setup_intent.canceled', setupIntentHandler],
+      ['setup_intent.requires_action', setupIntentHandler],
       ['customer.subscription.created', subscriptionHandler],
       ['customer.subscription.updated', subscriptionHandler],
       ['customer.subscription.deleted', subscriptionHandler],
       ['customer.subscription.trial_will_end', subscriptionHandler],
       ['customer.subscription.paused', subscriptionHandler],
       ['customer.subscription.resumed', subscriptionHandler],
+      ['customer.subscription.pending_update_applied', subscriptionHandler],
+      ['customer.subscription.pending_update_expired', subscriptionHandler],
       ['invoice.payment_succeeded', invoiceHandler],
       ['invoice.payment_failed', invoiceHandler],
       ['invoice.upcoming', invoiceHandler],
       ['invoice.created', invoiceHandler],
       ['invoice.finalized', invoiceHandler],
+      ['invoice.paid', invoiceHandler],
+      ['invoice.voided', invoiceHandler],
+      ['invoice.marked_uncollectible', invoiceHandler],
       ['payment_method.attached', paymentMethodHandler],
       ['payment_method.detached', paymentMethodHandler],
       ['payment_method.updated', paymentMethodHandler],
+      ['payment_method.card_automatically_updated', paymentMethodHandler],
       ['customer.created', customerHandler],
       ['customer.updated', customerHandler],
       ['customer.deleted', customerHandler],
+      ['customer.discount.created', customerHandler],
+      ['customer.discount.deleted', customerHandler],
       ['mandate.updated', mandateHandler],
+      ['charge.succeeded', chargeHandler],
+      ['charge.failed', chargeHandler],
+      ['charge.refunded', chargeHandler],
+      ['charge.dispute.created', chargeHandler],
+      ['charge.dispute.closed', chargeHandler],
+      ['charge.dispute.updated', chargeHandler],
+      ['radar.early_fraud_warning', radarHandler],
+      ['account.updated', accountHandler],
     ]);
   }
 

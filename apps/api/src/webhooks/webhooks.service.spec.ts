@@ -11,6 +11,9 @@ import { InvoiceHandler } from './handlers/invoice.handler';
 import { PaymentMethodHandler } from './handlers/payment-method.handler';
 import { CustomerHandler } from './handlers/customer.handler';
 import { MandateHandler } from './handlers/mandate.handler';
+import { ChargeHandler } from './handlers/charge.handler';
+import { RadarHandler } from './handlers/radar.handler';
+import { AccountHandler } from './handlers/account.handler';
 
 function makeEvent(overrides: Partial<{ id: string; type: string }> = {}) {
   return {
@@ -56,6 +59,9 @@ describe('WebhooksService', () => {
         { provide: PaymentMethodHandler, useValue: { handle: jest.fn() } },
         { provide: CustomerHandler, useValue: { handle: jest.fn() } },
         { provide: MandateHandler, useValue: { handle: jest.fn() } },
+        { provide: ChargeHandler, useValue: { handle: jest.fn() } },
+        { provide: RadarHandler, useValue: { handle: jest.fn() } },
+        { provide: AccountHandler, useValue: { handle: jest.fn() } },
         {
           provide: EncryptionService,
           useValue: { encrypt: (s: string) => s, decrypt: (s: string) => s },

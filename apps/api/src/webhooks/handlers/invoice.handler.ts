@@ -101,6 +101,80 @@ export class InvoiceHandler {
           dueDate: invoice.due_date,
         });
         break;
+
+      case 'invoice.paid':
+        this.logger.log({
+          message: 'Invoice paid',
+          stripeInvoiceId: invoice.id,
+          stripeCustomerId: invoice.customer,
+          stripeSubscriptionId: invoice.subscription,
+          amountPaid: invoice.amount_paid,
+          currency: invoice.currency,
+          paidOutOfBand: invoice.paid_out_of_band,
+        });
+        if (invoice.subscription) {
+          try {
+            const sub = await this.subscriptionsService.findByStripeId(
+              invoice.subscription as string,
+            );
+            if (sub && sub.status === 'past_due') {
+              await this.subscriptionsService.setStatus(sub.id, 'active');
+              this.logger.log({
+                message: 'Subscription reactivated after invoice paid',
+                subscriptionId: sub.id,
+                stripeSubscriptionId: invoice.subscription,
+              });
+            }
+          } catch (err) {
+            this.logger.error({
+              message: 'Failed to reactivate subscription on invoice paid',
+              stripeSubscriptionId: invoice.subscription,
+              err,
+            });
+          }
+        }
+        break;
+
+      case 'invoice.voided':
+        this.logger.log({
+          message: 'Invoice voided',
+          stripeInvoiceId: invoice.id,
+          stripeCustomerId: invoice.customer,
+          stripeSubscriptionId: invoice.subscription,
+          reason: (invoice as unknown as Record<string, unknown>).void_reason ?? 'unknown',
+        });
+        break;
+
+      case 'invoice.marked_uncollectible':
+        this.logger.warn({
+          message: 'Invoice marked uncollectible',
+          stripeInvoiceId: invoice.id,
+          stripeCustomerId: invoice.customer,
+          stripeSubscriptionId: invoice.subscription,
+          amountDue: invoice.amount_due,
+        });
+        if (invoice.subscription) {
+          try {
+            const sub = await this.subscriptionsService.findByStripeId(
+              invoice.subscription as string,
+            );
+            if (sub && (sub.status === 'past_due' || sub.status === 'active')) {
+              await this.subscriptionsService.setStatus(sub.id, 'unpaid');
+              this.logger.log({
+                message: 'Subscription marked unpaid due to uncollectible invoice',
+                subscriptionId: sub.id,
+                stripeSubscriptionId: invoice.subscription,
+              });
+            }
+          } catch (err) {
+            this.logger.error({
+              message: 'Failed to update subscription on invoice uncollectible',
+              stripeSubscriptionId: invoice.subscription,
+              err,
+            });
+          }
+        }
+        break;
     }
   }
 }
