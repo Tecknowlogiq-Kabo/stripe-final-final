@@ -14,6 +14,7 @@ import { MandateHandler } from './handlers/mandate.handler';
 import { ChargeHandler } from './handlers/charge.handler';
 import { RadarHandler } from './handlers/radar.handler';
 import { AccountHandler } from './handlers/account.handler';
+import { CheckoutSessionHandler } from './handlers/checkout-session.handler';
 import { WEBHOOK_QUEUE } from './webhook-queue.constants';
 import { WebhooksRepository } from './webhooks.repository';
 import { EncryptionService } from '../crypto/encryption.service';
@@ -47,6 +48,7 @@ export class WebhooksService {
     private readonly chargeHandler: ChargeHandler,
     private readonly radarHandler: RadarHandler,
     private readonly accountHandler: AccountHandler,
+    private readonly checkoutSessionHandler: CheckoutSessionHandler,
     private readonly encryption: EncryptionService,
   ) {
     this.handlerRegistry = new Map<string, WebhookHandler>([
@@ -94,6 +96,9 @@ export class WebhooksService {
       ['charge.dispute.updated', chargeHandler],
       ['radar.early_fraud_warning', radarHandler],
       ['account.updated', accountHandler],
+      ['checkout.session.completed', checkoutSessionHandler],
+      ['checkout.session.async_payment_succeeded', checkoutSessionHandler],
+      ['checkout.session.expired', checkoutSessionHandler],
     ]);
   }
 

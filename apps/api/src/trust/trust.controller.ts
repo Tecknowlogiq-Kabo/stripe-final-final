@@ -43,8 +43,8 @@ export class TrustController {
   }
 
   /**
-   * GET /trust/:trustId — validate token and return resource info.
-   * Public — guest users use this to view what they're approving.
+   * GET /trust/:trustId — validate token and return full status info.
+   * Public — guest users see this page.
    */
   @Public()
   @Get(':trustId')
@@ -53,10 +53,16 @@ export class TrustController {
     if (!payload) {
       return { valid: false };
     }
+
+    // Get full record for status + expiry
+    const record = await this.trustService.getTokenStatus(trustId);
     return {
       valid: true,
+      tokenId: payload.sub,
       resourceType: payload.resourceType,
       resourceId: payload.resourceId,
+      status: record?.status ?? 'pending',
+      expiresAt: record?.expiresAt?.toISOString() ?? null,
     };
   }
 
@@ -74,6 +80,34 @@ export class TrustController {
     }
     const guestLink = `${process.env.TRUST_GUEST_LINK_BASE_URL ?? 'http://localhost:3000'}/trust/${trustId}`;
     return { valid: true, guestLink };
+  }
+
+  /**
+   * POST /trust/webhook — webhook endpoint for external systems to approve/deny trust tokens.
+   * Public. Called by external services (webhook senders) to trigger approval/denial.
+   * Body: { trustId: string, action: 'approve' | 'deny' }
+   */
+  @Public()
+  @Post('webhook')
+  @HttpCode(HttpStatus.OK)
+  async handleWebhook(@Body() body: { trustId: string; action: 'approve' | 'deny' }) {
+    this.logger.log({
+      message: 'Trust webhook received',
+      trustId: body.trustId?.substring(0, 20) + '...',
+      action: body.action,
+    });
+
+    if (body.action === 'approve') {
+      const approved = await this.trustService.approve(body.trustId);
+      return { action: 'approve', success: approved };
+    }
+
+    if (body.action === 'deny') {
+      const denied = await this.trustService.deny(body.trustId);
+      return { action: 'deny', success: denied };
+    }
+
+    return { success: false, message: 'Invalid action. Use "approve" or "deny".' };
   }
 
   /**

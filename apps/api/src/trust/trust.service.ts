@@ -217,6 +217,21 @@ export class TrustService {
     return true;
   }
 
+  /**
+   * Get the raw DB record for a trustId (for status display).
+   */
+  async getTokenStatus(trustId: string): Promise<{ status: string; expiresAt: Date } | null> {
+    try {
+      const payload = this.jwtService.verify<TrustTokenPayload>(trustId);
+      const tokenHash = this.hashToken(trustId);
+      const record = await this.repo.findByTokenHash(tokenHash);
+      if (!record) return null;
+      return { status: record.status, expiresAt: record.expiresAt };
+    } catch {
+      return null;
+    }
+  }
+
   private hashToken(token: string): string {
     return createHash('sha256').update(token).digest('hex');
   }
