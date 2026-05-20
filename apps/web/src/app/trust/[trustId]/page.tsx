@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 
-type TrustStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'invalid';
+type TrustStatus = 'pending' | 'submitted' | 'approved' | 'denied' | 'expired' | 'invalid';
 
 interface TrustState {
   status: TrustStatus;
@@ -41,7 +41,7 @@ export default function TrustPage() {
           return;
         }
 
-        if (data.status === 'approved' || data.status === 'denied' || data.status === 'expired') {
+        if (data.status === 'approved' || data.status === 'denied' || data.status === 'expired' || data.status === 'submitted') {
           // Terminal state — stop polling
           clearInterval(pollTimer);
           setState({
@@ -93,6 +93,42 @@ export default function TrustPage() {
     );
   }
 
+  if (state.status === 'submitted') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-zinc-950">
+        <div className="card max-w-md w-full">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" />
+            <h1 className="text-xl font-semibold text-zinc-100">Documents Submitted</h1>
+          </div>
+
+          <div className="mb-6 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-zinc-500">Resource Type</span>
+              <span className="text-zinc-300 font-medium">{state.resourceType ?? '—'}</span>
+            </div>
+            {state.resourceId && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-zinc-500">Resource ID</span>
+                <span className="text-zinc-300 font-mono text-xs">{state.resourceId}</span>
+              </div>
+            )}
+            {state.expiresAt && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-zinc-500">Expires</span>
+                <span className="text-zinc-300 text-xs">{new Date(state.expiresAt).toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+
+          <p className="text-sm text-zinc-400">
+            Documents have been submitted and are being verified. This page will update when verification is complete.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (state.status === 'approved') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-950">
@@ -101,7 +137,7 @@ export default function TrustPage() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <h1 className="text-2xl font-semibold text-zinc-100 mb-2">Approved</h1>
-          <p className="text-sm text-zinc-400 mb-4">Files transferred to secure storage.</p>
+          <p className="text-sm text-zinc-400 mb-4">Documents verified and stored securely.</p>
           <p className="text-xs text-zinc-600">You can close this page.</p>
         </div>
       </div>

@@ -1,4 +1,13 @@
-import { IsString, IsOptional, IsInt, Min, Max, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max, IsObject, IsArray, ValidateNested, IsEmail } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class TrustFlexibleFieldDto {
+  @IsString()
+  flexibleFieldVersionId: string;
+
+  @IsString()
+  fieldValueString: string;
+}
 
 export class CreateTrustTokenDto {
   @IsString()
@@ -17,4 +26,27 @@ export class CreateTrustTokenDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
+
+  // TrustID-specific fields (optional — only used when creating TrustID guest links)
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  clientApplicationReference?: string;
+
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TrustFlexibleFieldDto)
+  applicationFlexibleFieldValues?: TrustFlexibleFieldDto[];
 }

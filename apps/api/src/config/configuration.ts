@@ -56,4 +56,12 @@ export default () => ({
     tokenTtlSeconds: parseInt(process.env.TRUST_TOKEN_TTL_SECONDS ?? '86400', 10),
     guestLinkBaseUrl: process.env.TRUST_GUEST_LINK_BASE_URL ?? 'http://localhost:3000',
   },
+  trustid: {
+    apiBaseUrl: process.env.TRUSTID_API_BASE_URL ?? 'https://api.trustid.co.uk',
+    apiKey: process.env.TRUSTID_API_KEY,
+    username: process.env.TRUSTID_USERNAME,
+    password: process.env.TRUSTID_PASSWORD,
+    sessionTtlSeconds: parseInt(process.env.TRUSTID_SESSION_TTL_SECONDS ?? '3600', 10),
+    webhookCallbackBaseUrl: process.env.TRUSTID_WEBHOOK_CALLBACK_BASE_URL,
+  },
 });

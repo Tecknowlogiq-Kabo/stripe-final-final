@@ -7,7 +7,7 @@ import {
   Index,
 } from 'typeorm';
 
-export type TrustTokenStatus = 'pending' | 'approved' | 'denied' | 'expired';
+export type TrustTokenStatus = 'pending' | 'submitted' | 'approved' | 'denied' | 'expired';
 
 @Entity({ name: 'TRUST_TOKENS' })
 export class TrustToken {

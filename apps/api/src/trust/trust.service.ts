@@ -6,6 +6,7 @@ import { TrustRepository } from './trust.repository';
 import { AuditService } from '../audit/audit.service';
 import { RedisService } from '../redis/redis.service';
 import { S3Service } from '../s3/s3.service';
+import { TrustIdService } from '../trustid/trustid.service';
 
 interface TrustTokenPayload {
   sub: string;    // trust token ID
@@ -27,14 +28,18 @@ export class TrustService {
     private readonly auditService: AuditService,
     private readonly redis: RedisService,
     private readonly s3Service: S3Service,
+    private readonly trustIdService: TrustIdService,
   ) {
     this.ttlSeconds = this.configService.get<number>('trust.tokenTtlSeconds') ?? 86400;
     this.guestLinkBaseUrl = this.configService.get<string>('trust.guestLinkBaseUrl') ?? 'http://localhost:3000';
   }
 
   /**
-   * Generate a new trustId token and persist its hash.
-   * Returns the raw JWT (trustId) for the guest link.
+   * Generate a trust token using TrustID Cloud Workflow 4.
+   *
+   * Creates a real TrustID guest link, persists a local trust token
+   * linking to the TrustID container, and returns both the local trustId
+   * (JWT) and the TrustID guest URL.
    */
   async generateTrustToken(
     resourceType: string,
@@ -42,7 +47,12 @@ export class TrustService {
     createdBy: string | undefined,
     metadata: Record<string, unknown> | undefined,
     ttlSec?: number,
-  ): Promise<{ trustId: string; tokenId: string; expiresAt: Date; guestLink: string }> {
+    email?: string,
+    name?: string,
+    clientRef?: string,
+    branchId?: string,
+    flexibleFields?: { flexibleFieldVersionId: string; fieldValueString: string }[],
+  ): Promise<{ trustId: string; tokenId: string; expiresAt: Date; guestLink: string; containerId?: string }> {
     const tokenId = randomUUID();
     const jti = randomUUID();
     const effectiveTtl = ttlSec ?? this.ttlSeconds;
@@ -58,6 +68,46 @@ export class TrustService {
     const trustId = this.jwtService.sign(payload, { expiresIn: effectiveTtl });
     const tokenHash = this.hashToken(trustId);
 
+    // Attempt to create a TrustID Cloud guest link (if configured).
+    // Falls back to a local-only link if TrustID is not configured.
+    let guestLink: string;
+    let containerId: string | undefined;
+
+    try {
+      const guestEmail = email ?? metadata?.email as string ?? 'guest@example.com';
+      const guestName = name ?? metadata?.name as string ?? 'Guest';
+      const reference = clientRef ?? resourceId ?? tokenId;
+
+      const tResult = await this.trustIdService.createGuestLink({
+        email: guestEmail,
+        name: guestName,
+        branchId,
+        applicationFlexibleFieldValues: flexibleFields ?? [],
+        clientApplicationReference: reference,
+        sendEmail: (metadata?.sendEmail as boolean) ?? true,
+      });
+
+      guestLink = tResult.guestLinkUrl;
+      containerId = tResult.containerId;
+
+      // Merge TrustID container metadata into the token metadata
+      const mergedMeta = {
+        ...(metadata ?? {}),
+        trustidContainerId: containerId,
+        trustidLinkId: tResult.linkId,
+        trustidGuestEmail: guestEmail,
+        trustidGuestName: guestName,
+      };
+      metadata = mergedMeta;
+    } catch (err) {
+      // TrustID creation failed — fall back to local-only guest link
+      this.logger.warn({
+        message: 'TrustID guest link creation failed, using local-only link',
+        err,
+      });
+      guestLink = `${this.guestLinkBaseUrl}/trust/${trustId}`;
+    }
+
     await this.repo.insert(
       tokenId,
       tokenHash,
@@ -68,14 +118,17 @@ export class TrustService {
       metadata ? JSON.stringify(metadata) : undefined,
     );
 
-    const guestLink = `${this.guestLinkBaseUrl}/trust/${trustId}`;
-
     await this.auditService.log({
       actorId: createdBy ?? 'system',
       action: 'trust_token.created',
       resourceType,
       resourceId: resourceId ?? null,
-      details: JSON.stringify({ tokenId, expiresAt: expiresAt.toISOString(), resourceType }),
+      details: JSON.stringify({
+        tokenId,
+        expiresAt: expiresAt.toISOString(),
+        resourceType,
+        containerId: containerId ?? null,
+      }),
     });
 
     this.logger.log({
@@ -83,10 +136,11 @@ export class TrustService {
       tokenId,
       resourceType,
       resourceId,
-      expiresAt: expiresAt.toISOString(),
+      containerId: containerId ?? null,
+      hasTrustIdLink: !!containerId,
     });
 
-    return { trustId, tokenId, expiresAt, guestLink };
+    return { trustId, tokenId, expiresAt, guestLink, containerId };
   }
 
   /**
@@ -110,7 +164,7 @@ export class TrustService {
       const record = await this.repo.findByTokenHash(tokenHash);
       if (!record) return null;
 
-      if (record.status !== 'pending') {
+      if (record.status !== 'pending' && record.status !== 'submitted') {
         await this.redis.set(`trust:status:${payload.sub}`, record.status, 3600);
         return null; // Already acted upon
       }
@@ -135,7 +189,7 @@ export class TrustService {
     if (!payload) return false;
 
     const record = await this.repo.findByTokenHash(this.hashToken(trustId));
-    if (!record || record.status !== 'pending') return false;
+    if (!record || (record.status !== 'pending' && record.status !== 'submitted')) return false;
 
     await this.repo.updateStatus(record.id, 'approved');
     await this.redis.set(`trust:status:${payload.sub}`, 'approved', 3600);
@@ -194,7 +248,7 @@ export class TrustService {
     if (!payload) return false;
 
     const record = await this.repo.findByTokenHash(this.hashToken(trustId));
-    if (!record || record.status !== 'pending') return false;
+    if (!record || (record.status !== 'pending' && record.status !== 'submitted')) return false;
 
     await this.repo.updateStatus(record.id, 'denied');
     await this.redis.set(`trust:status:${payload.sub}`, 'denied', 3600);
@@ -218,15 +272,73 @@ export class TrustService {
   }
 
   /**
+   * Link a TrustID container to a trust token and mark as submitted.
+   * Called by the TrustID container-submitted webhook handler.
+   */
+  async linkContainerId(trustId: string, containerId: string): Promise<boolean> {
+    try {
+      const payload = this.jwtService.verify<TrustTokenPayload>(trustId);
+      const tokenHash = this.hashToken(trustId);
+      const record = await this.repo.findByTokenHash(tokenHash);
+
+      if (!record) {
+        this.logger.warn({ message: 'Trust token not found for container link', containerId });
+        return false;
+      }
+
+      if (record.status !== 'pending') {
+        this.logger.warn({
+          message: 'Trust token not in pending state for container link',
+          tokenId: record.id,
+          status: record.status,
+          containerId,
+        });
+        return false;
+      }
+
+      // Merge containerId into existing metadata
+      let meta: Record<string, unknown> = {};
+      if (record.metadata) {
+        try {
+          meta = JSON.parse(record.metadata);
+        } catch { /* use empty */ }
+      }
+      meta.trustidContainerId = containerId;
+
+      await this.repo.updateMetadata(record.id, JSON.stringify(meta));
+      await this.repo.updateStatus(record.id, 'submitted');
+      await this.redis.set(`trust:status:${payload.sub}`, 'submitted', 3600);
+
+      await this.auditService.log({
+        actorId: 'system:trustid-webhook',
+        action: 'trust_token.container_submitted',
+        resourceType: record.resourceType,
+        resourceId: record.resourceId ?? null,
+        details: JSON.stringify({ tokenId: record.id, containerId }),
+      });
+
+      this.logger.log({
+        message: 'Trust token linked to TrustID container',
+        tokenId: record.id,
+        containerId,
+      });
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Get the raw DB record for a trustId (for status display).
    */
-  async getTokenStatus(trustId: string): Promise<{ status: string; expiresAt: Date } | null> {
+  async getTokenStatus(trustId: string): Promise<{ status: string; expiresAt: Date; metadata?: string } | null> {
     try {
       const payload = this.jwtService.verify<TrustTokenPayload>(trustId);
       const tokenHash = this.hashToken(trustId);
       const record = await this.repo.findByTokenHash(tokenHash);
       if (!record) return null;
-      return { status: record.status, expiresAt: record.expiresAt };
+      return { status: record.status, expiresAt: record.expiresAt, metadata: record.metadata };
     } catch {
       return null;
     }

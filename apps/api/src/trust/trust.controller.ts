@@ -9,6 +9,7 @@ import {
   UseGuards,
   Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { TrustService } from './trust.service';
 import { CreateTrustTokenDto } from './dto/create-trust-token.dto';
 import { Public } from '../auth/decorators/public.decorator';
@@ -18,10 +19,13 @@ import { TrustGuard } from './trust.guard';
 export class TrustController {
   private readonly logger = new Logger(TrustController.name);
 
-  constructor(private readonly trustService: TrustService) {}
+  constructor(
+    private readonly trustService: TrustService,
+    private readonly configService: ConfigService,
+  ) {}
 
   /**
-   * Create a new trust token. Requires authentication.
+   * Create a new trust token via TrustID Cloud (if configured) or local fallback.
    * Returns the trustId (JWT) and guest link URL.
    */
   @Post('tokens')
@@ -30,15 +34,21 @@ export class TrustController {
     const result = await this.trustService.generateTrustToken(
       dto.resourceType,
       dto.resourceId,
-      undefined, // createdBy pulled from auth context if available
+      undefined,
       dto.metadata,
       dto.ttlSeconds,
+      dto.email,
+      dto.name,
+      dto.clientApplicationReference,
+      dto.branchId,
+      dto.applicationFlexibleFieldValues,
     );
     return {
       trustId: result.trustId,
       tokenId: result.tokenId,
       guestLink: result.guestLink,
       expiresAt: result.expiresAt.toISOString(),
+      containerId: result.containerId ?? null,
     };
   }
 
@@ -67,18 +77,30 @@ export class TrustController {
   }
 
   /**
-   * GET /trust/:trustId/guest-link — returns the full web guest page URL.
-   * Public — guests need to retrieve their link.
+   * GET /trust/:trustId/guest-link — returns the full guest page URL.
+   * If the token was created via TrustID Cloud, returns the TrustID guest URL.
+   * Otherwise falls back to the local trust page.
    */
   @Public()
   @Get(':trustId/guest-link')
   async getGuestLink(@Param('trustId') trustId: string) {
-    // Re-validate to ensure it's still active
     const payload = await this.trustService.validateTrustToken(trustId);
     if (!payload) {
       return { valid: false, guestLink: null };
     }
-    const guestLink = `${process.env.TRUST_GUEST_LINK_BASE_URL ?? 'http://localhost:3000'}/trust/${trustId}`;
+
+    // Check if a TrustID Cloud URL is stored in the token metadata
+    const status = await this.trustService.getTokenStatus(trustId);
+    if (status?.metadata) {
+      try {
+        const meta = JSON.parse(status.metadata);
+        if (meta.trustidGuestLink || meta.guestLinkUrl) {
+          return { valid: true, guestLink: meta.trustidGuestLink ?? meta.guestLinkUrl };
+        }
+      } catch { /* fall through to local */ }
+    }
+
+    const guestLink = `${this.configService.get('trust.guestLinkBaseUrl') ?? 'http://localhost:3000'}/trust/${trustId}`;
     return { valid: true, guestLink };
   }
 

@@ -40,4 +40,10 @@ export const validationSchema = Joi.object({
   TRUST_JWT_SECRET: Joi.string().min(32).optional(),
   TRUST_TOKEN_TTL_SECONDS: Joi.number().default(86400),
   TRUST_GUEST_LINK_BASE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('http://localhost:3000'),
+  TRUSTID_API_BASE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).default('https://api.trustid.co.uk'),
+  TRUSTID_API_KEY: Joi.string().optional(),
+  TRUSTID_USERNAME: Joi.string().optional(),
+  TRUSTID_PASSWORD: Joi.string().optional(),
+  TRUSTID_SESSION_TTL_SECONDS: Joi.number().default(3600),
+  TRUSTID_WEBHOOK_CALLBACK_BASE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).optional(),
 });

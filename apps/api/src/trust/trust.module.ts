@@ -6,6 +6,7 @@ import { TrustService } from './trust.service';
 import { TrustRepository } from './trust.repository';
 import { TrustGuard } from './trust.guard';
 import { S3Module } from '../s3/s3.module';
+import { TrustIdModule } from '../trustid/trustid.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { S3Module } from '../s3/s3.module';
       inject: [ConfigService],
     }),
     S3Module,
+    TrustIdModule,
   ],
   controllers: [TrustController],
   providers: [TrustService, TrustRepository, TrustGuard],

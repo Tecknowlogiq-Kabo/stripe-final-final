@@ -27,6 +27,8 @@ import { MetricsModule } from './metrics/metrics.module';
 import { AuditModule } from './audit/audit.module';
 import { CryptoModule } from './crypto/crypto.module';
 import { TrustModule } from './trust/trust.module';
+import { TrustIdModule } from './trustid/trustid.module';
+import { TrustIdWebhookModule } from './webhooks/trustid-webhook.module';
 import { S3Module } from './s3/s3.module';
 import { RedisModule } from './redis/redis.module';
 import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
@@ -90,6 +92,8 @@ import { PerUserThrottlerGuard } from './common/guards/per-user-throttler.guard'
     CryptoModule,
     S3Module,
     TrustModule,
+    TrustIdModule,
+    TrustIdWebhookModule,
   ],
   providers: [
     // Order matters: more specific filters first

@@ -48,4 +48,27 @@ export class TrustRepository {
     );
     return result.rowsAffected ?? 0;
   }
+
+  /**
+   * Find a trust token by its resourceId.
+   * Used by TrustID webhook handlers to map ContainerId → trust token.
+   */
+  async findByResourceId(resourceId: string): Promise<TrustToken | null> {
+    const [row] = await this.dataSource.query<TrustToken[]>(
+      `SELECT ID AS "id", TOKEN_HASH AS "tokenHash", RESOURCE_TYPE AS "resourceType", RESOURCE_ID AS "resourceId", STATUS AS "status", EXPIRES_AT AS "expiresAt", CREATED_BY AS "createdBy", METADATA AS "metadata", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"
+       FROM TRUST_TOKENS WHERE RESOURCE_ID = :1 AND ROWNUM = 1`,
+      [resourceId],
+    );
+    return row ?? null;
+  }
+
+  /**
+   * Update just the metadata JSON field on a trust token.
+   */
+  async updateMetadata(id: string, metadata: string): Promise<void> {
+    await this.dataSource.query(
+      `UPDATE TRUST_TOKENS SET METADATA = :1, UPDATED_AT = SYSDATE WHERE ID = :2`,
+      [metadata, id],
+    );
+  }
 }
