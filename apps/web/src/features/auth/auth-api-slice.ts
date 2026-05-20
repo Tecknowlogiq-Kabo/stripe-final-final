@@ -1,15 +1,32 @@
 import { apiSlice } from '@/lib/api-slice';
-import { authService } from './auth.service';
 import type { AuthInput, AuthResult } from './auth.types';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+
+async function authFetch(endpoint: string, input: AuthInput): Promise<AuthResult> {
+  const res = await fetch(`${API_URL}/api/v1/auth/${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+    credentials: 'include',
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { message?: string }).message ?? 'Auth failed');
+  }
+
+  return res.json() as Promise<AuthResult>;
+}
 
 export const authApiSlice = apiSlice.injectEndpoints({
   overrideExisting: true,
   endpoints: (builder) => ({
     login: builder.mutation<AuthResult, AuthInput>({
-      queryFn: (input) => authService.login(input).then((data) => ({ data })).catch((error: Error) => ({ error: { status: 'CUSTOM_ERROR', error: error.message } })),
+      queryFn: (input) => authFetch('login', input).then((data) => ({ data })),
     }),
     register: builder.mutation<AuthResult, AuthInput>({
-      queryFn: (input) => authService.register(input).then((data) => ({ data })).catch((error: Error) => ({ error: { status: 'CUSTOM_ERROR', error: error.message } })),
+      queryFn: (input) => authFetch('register', input).then((data) => ({ data })),
     }),
   }),
 });

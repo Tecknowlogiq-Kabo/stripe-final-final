@@ -1,6 +1,5 @@
 import { apiSlice } from '@/lib/api-slice';
-import { queryFnResult } from '@/lib/query-fn-helper';
-import { subscriptionsService } from './subscriptions.service';
+import { apiClient } from '@/lib/api-client';
 import type {
   Subscription,
   SubscriptionPlan,
@@ -11,26 +10,27 @@ import type {
 export const subscriptionsApiSlice = apiSlice.injectEndpoints({
   overrideExisting: true,
   endpoints: (builder) => ({
-    // ── Queries ──────────────────────────────────────────────
     subscriptionPlans: builder.query<SubscriptionPlan[], void>({
-      queryFn: () => queryFnResult(() => subscriptionsService.listPlans()),
+      queryFn: () =>
+        apiClient.get<SubscriptionPlan[]>('/subscriptions/plans').then((data) => ({ data })),
       providesTags: ['SubscriptionPlan'],
     }),
 
     customerSubscriptions: builder.query<Subscription[], string>({
       queryFn: (customerId) =>
-        queryFnResult(() => subscriptionsService.listByCustomer(customerId)),
+        apiClient
+          .get<{ data: Subscription[] } | Subscription[]>(
+            `/subscriptions/customer/${customerId}`,
+          )
+          .then((res) => ({ data: Array.isArray(res) ? res : res.data })),
       providesTags: (_result, _error, customerId) => [
         { type: 'Subscription', id: `LIST-${customerId}` },
       ],
     }),
 
-    // ── Mutations ────────────────────────────────────────────
-    createSubscription: builder.mutation<
-      Subscription,
-      CreateSubscriptionInput
-    >({
-      queryFn: (input) => queryFnResult(() => subscriptionsService.create(input)),
+    createSubscription: builder.mutation<Subscription, CreateSubscriptionInput>({
+      queryFn: (input) =>
+        apiClient.post<Subscription>('/subscriptions', input).then((data) => ({ data })),
       invalidatesTags: (_result, _error, { customerId }) => [
         { type: 'Subscription', id: `LIST-${customerId}` },
       ],
@@ -41,12 +41,13 @@ export const subscriptionsApiSlice = apiSlice.injectEndpoints({
       { id: string } & UpdateSubscriptionInput
     >({
       queryFn: ({ id, ...data }) =>
-        queryFnResult(() => subscriptionsService.update(id, data)),
+        apiClient.patch<Subscription>(`/subscriptions/${id}`, data).then((data) => ({ data })),
       invalidatesTags: ['Subscription'],
     }),
 
     cancelSubscription: builder.mutation<Subscription, string>({
-      queryFn: (id) => queryFnResult(() => subscriptionsService.cancel(id)),
+      queryFn: (id) =>
+        apiClient.delete<Subscription>(`/subscriptions/${id}`).then((data) => ({ data })),
       invalidatesTags: ['Subscription'],
     }),
   }),

@@ -1,8 +1,5 @@
 import type { AuthInput, AuthResult } from './auth.types';
 
-// Auth endpoints bypass apiClient — they're pre-auth and must let the browser
-// receive Set-Cookie headers directly. The apiClient 401-refresh logic would
-// also misfire on bad-credential responses.
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 class AuthService {

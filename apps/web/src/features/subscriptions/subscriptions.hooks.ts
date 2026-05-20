@@ -1,6 +1,4 @@
 // Re-export from RTK Query api slice
-// Tag-based cache invalidation replaces the old queryClient.invalidateQueries calls.
-
 import { subscriptionKeys } from './subscriptions-keys';
 
 export { subscriptionKeys };

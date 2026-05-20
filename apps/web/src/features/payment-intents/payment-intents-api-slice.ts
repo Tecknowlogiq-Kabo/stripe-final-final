@@ -1,6 +1,5 @@
 import { apiSlice } from '@/lib/api-slice';
-import { queryFnResult } from '@/lib/query-fn-helper';
-import { paymentIntentsService } from './payment-intents.service';
+import { apiClient } from '@/lib/api-client';
 import type {
   PaymentIntentListResponse,
   GetCustomerPaymentIntentsParams,
@@ -13,12 +12,20 @@ export const paymentIntentsApiSlice = apiSlice.injectEndpoints({
       PaymentIntentListResponse,
       GetCustomerPaymentIntentsParams
     >({
-      queryFn: (params) =>
-        queryFnResult(() => paymentIntentsService.listByCustomer(params)),
+      queryFn: ({ customerId, page = 1, limit = 10, status }) => {
+        const params = new URLSearchParams();
+        params.set('page', String(page));
+        params.set('limit', String(limit));
+        if (status) params.set('status', status);
+        return apiClient
+          .get<PaymentIntentListResponse>(
+            `/payment-intents/customer/${customerId}?${params.toString()}`,
+          )
+          .then((data) => ({ data }));
+      },
       providesTags: (_result, _error, { customerId }) => [
         { type: 'PaymentIntent', id: `LIST-${customerId}` },
       ],
-      // Keep previous data while fetching next page
       keepUnusedDataFor: 30,
     }),
   }),
