@@ -10,6 +10,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as QRCode from 'qrcode';
 import { TrustService } from './trust.service';
 import { CreateTrustTokenDto } from './dto/create-trust-token.dto';
 import { Public } from '../auth/decorators/public.decorator';
@@ -95,14 +96,25 @@ export class TrustController {
     if (status?.metadata) {
       try {
         const meta = JSON.parse(status.metadata);
-        if (meta.trustidGuestLink || meta.guestLinkUrl) {
-          return { valid: true, guestLink: meta.trustidGuestLink ?? meta.guestLinkUrl };
+        const resolvedGuestLink = meta.trustidGuestLink ?? meta.guestLinkUrl;
+        if (resolvedGuestLink) {
+          const qrCodeDataUrl = await QRCode.toDataURL(resolvedGuestLink, {
+            width: 400,
+            margin: 2,
+            color: { dark: '#000000', light: '#ffffff' },
+          });
+          return { valid: true, guestLink: resolvedGuestLink, qrCodeDataUrl };
         }
       } catch { /* fall through to local */ }
     }
 
     const guestLink = `${this.configService.get('trust.guestLinkBaseUrl') ?? 'http://localhost:3000'}/trust/${trustId}`;
-    return { valid: true, guestLink };
+    const qrCodeDataUrl = await QRCode.toDataURL(guestLink, {
+      width: 400,
+      margin: 2,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+    return { valid: true, guestLink, qrCodeDataUrl };
   }
 
   /**

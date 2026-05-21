@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 
 type TrustStatus = 'pending' | 'submitted' | 'approved' | 'denied' | 'expired' | 'invalid';
+type ViewMode = 'iframe' | 'qrcode';
 
 interface TrustState {
   status: TrustStatus;
@@ -11,6 +12,8 @@ interface TrustState {
   resourceId?: string;
   tokenId?: string;
   expiresAt?: string;
+  guestLink?: string;
+  qrCodeDataUrl?: string;
   loading: boolean;
   error?: string;
 }
@@ -22,6 +25,26 @@ export default function TrustPage() {
   const trustId = params.trustId as string;
 
   const [state, setState] = useState<TrustState>({ loading: true, status: 'invalid' });
+  const [viewMode, setViewMode] = useState<ViewMode>('iframe');
+
+  // Fetch the guest link on mount
+  const fetchGuestLink = useCallback(async () => {
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
+      const res = await fetch(`${apiBase}/trust/${encodeURIComponent(trustId)}/guest-link`);
+      const data = await res.json();
+
+      if (data.valid && data.guestLink) {
+        setState((prev) => ({
+          ...prev,
+          guestLink: data.guestLink,
+          qrCodeDataUrl: data.qrCodeDataUrl ?? null,
+        }));
+      }
+    } catch {
+      // Non-fatal — guest link fetch is best-effort
+    }
+  }, [trustId]);
 
   useEffect(() => {
     let mounted = true;
@@ -44,26 +67,28 @@ export default function TrustPage() {
         if (data.status === 'approved' || data.status === 'denied' || data.status === 'expired' || data.status === 'submitted') {
           // Terminal state — stop polling
           clearInterval(pollTimer);
-          setState({
+          setState((prev) => ({
+            ...prev,
             loading: false,
             status: data.status,
             resourceType: data.resourceType,
             resourceId: data.resourceId,
             tokenId: data.tokenId,
             expiresAt: data.expiresAt,
-          });
+          }));
           return;
         }
 
         // Still pending — keep polling
-        setState({
+        setState((prev) => ({
+          ...prev,
           loading: false,
           status: 'pending',
           resourceType: data.resourceType,
           resourceId: data.resourceId,
           tokenId: data.tokenId,
           expiresAt: data.expiresAt,
-        });
+        }));
       } catch {
         if (!mounted) return;
         setState({ loading: false, status: 'invalid', error: 'Unable to reach the server' });
@@ -71,6 +96,7 @@ export default function TrustPage() {
       }
     }
 
+    fetchGuestLink();
     checkStatus();
     pollTimer = setInterval(checkStatus, POLL_INTERVAL_MS);
 
@@ -78,8 +104,9 @@ export default function TrustPage() {
       mounted = false;
       clearInterval(pollTimer);
     };
-  }, [trustId]);
+  }, [trustId, fetchGuestLink]);
 
+  // ---- Loading skeleton ----
   if (state.loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-950">
@@ -93,6 +120,7 @@ export default function TrustPage() {
     );
   }
 
+  // ---- Submitted state ----
   if (state.status === 'submitted') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-950">
@@ -129,6 +157,7 @@ export default function TrustPage() {
     );
   }
 
+  // ---- Approved state ----
   if (state.status === 'approved') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-950">
@@ -144,6 +173,7 @@ export default function TrustPage() {
     );
   }
 
+  // ---- Denied state ----
   if (state.status === 'denied') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-950">
@@ -159,6 +189,7 @@ export default function TrustPage() {
     );
   }
 
+  // ---- Invalid / Expired state ----
   if (state.status === 'invalid' || state.status === 'expired') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-zinc-950">
@@ -175,39 +206,138 @@ export default function TrustPage() {
     );
   }
 
-  // Pending — show status, no action buttons
+  // ---- Pending — show iframe + QR code if guest link is available ----
+  const hasTrustIdGuestLink = state.guestLink && !state.guestLink.includes(`/trust/${trustId}`);
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950">
-      <div className="card max-w-md w-full">
-        <div className="flex items-center gap-3 mb-4">
+    <div className="min-h-screen flex flex-col bg-zinc-950">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
+        <div className="flex items-center gap-3">
           <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse shrink-0" />
-          <h1 className="text-xl font-semibold text-zinc-100">Awaiting Approval</h1>
+          <h1 className="text-lg font-semibold text-zinc-100">Identity Verification</h1>
         </div>
-
-        <div className="mb-6 space-y-2">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-zinc-500">Resource Type</span>
-            <span className="text-zinc-300 font-medium">{state.resourceType ?? '—'}</span>
-          </div>
-          {state.resourceId && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-zinc-500">Resource ID</span>
-              <span className="text-zinc-300 font-mono text-xs">{state.resourceId}</span>
-            </div>
-          )}
-          {state.expiresAt && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-zinc-500">Expires</span>
-              <span className="text-zinc-300 text-xs">{new Date(state.expiresAt).toLocaleString()}</span>
-            </div>
-          )}
-        </div>
-
-        <p className="text-sm text-zinc-400">
-          This request is pending approval. Processing is handled automatically through webhooks.
-          You can refresh or wait — the page will update when status changes.
-        </p>
+        <span className="text-xs text-zinc-500">
+          {state.expiresAt ? `Expires ${new Date(state.expiresAt).toLocaleString()}` : ''}
+        </span>
       </div>
+
+      {/* Main content */}
+      {hasTrustIdGuestLink ? (
+        <>
+          {/* Tab bar */}
+          <div className="flex border-b border-zinc-800 px-6">
+            <button
+              onClick={() => setViewMode('iframe')}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                viewMode === 'iframe'
+                  ? 'border-blue-500 text-blue-400'
+                  : 'border-transparent text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              Upload Documents
+            </button>
+            <button
+              onClick={() => setViewMode('qrcode')}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                viewMode === 'qrcode'
+                  ? 'border-blue-500 text-blue-400'
+                  : 'border-transparent text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              Scan QR Code
+            </button>
+          </div>
+
+          {/* Content area */}
+          <div className="flex-1">
+            {viewMode === 'iframe' ? (
+              <iframe
+                src={state.guestLink}
+                className="w-full h-full min-h-[calc(100vh-120px)] border-0"
+                title="TrustID Identity Verification"
+                sandbox="allow-scripts allow-forms allow-same-origin allow-popups"
+                allow="camera;microphone;geolocation"
+                loading="eager"
+              />
+            ) : state.qrCodeDataUrl ? (
+              <div className="flex flex-col items-center justify-center py-12 px-6">
+                <div className="card max-w-sm w-full text-center">
+                  <h2 className="text-lg font-semibold text-zinc-100 mb-2">Scan to Upload</h2>
+                  <p className="text-sm text-zinc-400 mb-6">
+                    Scan this QR code with your mobile device to upload your documents.
+                  </p>
+                  <div className="bg-white p-4 rounded-xl inline-block mb-6">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={state.qrCodeDataUrl}
+                      alt="QR code for document upload"
+                      className="w-64 h-64"
+                    />
+                  </div>
+                  <a
+                    href={state.guestLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-400 hover:text-blue-300 underline"
+                  >
+                    Or open link in new tab
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center py-12">
+                <p className="text-sm text-zinc-500">QR code not available</p>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        /* No TrustID guest link — legacy pending view */
+        <div className="flex-1 flex items-center justify-center px-6">
+          <div className="card max-w-md w-full">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse shrink-0" />
+              <h1 className="text-xl font-semibold text-zinc-100">Awaiting Approval</h1>
+            </div>
+
+            <div className="mb-6 space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-zinc-500">Resource Type</span>
+                <span className="text-zinc-300 font-medium">{state.resourceType ?? '—'}</span>
+              </div>
+              {state.resourceId && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-500">Resource ID</span>
+                  <span className="text-zinc-300 font-mono text-xs">{state.resourceId}</span>
+                </div>
+              )}
+              {state.expiresAt && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-500">Expires</span>
+                  <span className="text-zinc-300 text-xs">{new Date(state.expiresAt).toLocaleString()}</span>
+                </div>
+              )}
+            </div>
+
+            <p className="text-sm text-zinc-400">
+              This request is pending approval. Processing is handled automatically through webhooks.
+              You can refresh or wait — the page will update when status changes.
+            </p>
+
+            {state.guestLink && (
+              <a
+                href={state.guestLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 inline-block text-sm text-blue-400 hover:text-blue-300 underline"
+              >
+                Open link in new tab
+              </a>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

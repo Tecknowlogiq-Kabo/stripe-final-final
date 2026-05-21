@@ -46,4 +46,6 @@ export const validationSchema = Joi.object({
   TRUSTID_PASSWORD: Joi.string().optional(),
   TRUSTID_SESSION_TTL_SECONDS: Joi.number().default(3600),
   TRUSTID_WEBHOOK_CALLBACK_BASE_URL: Joi.string().uri({ scheme: ['http', 'https'] }).optional(),
+  EMAIL_FROM: Joi.string().optional(),
+  EMAIL_AWS_REGION: Joi.string().optional(),
 });

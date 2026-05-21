@@ -51,6 +51,10 @@ export default () => ({
     s3Bucket: process.env.S3_BUCKET ?? 'stripe-trust-files',
     s3TrustPrefix: process.env.S3_TRUST_PREFIX ?? 'trust-approved/',
   },
+  email: {
+    from: process.env.EMAIL_FROM ?? 'noreply@yourdomain.com',
+    region: process.env.EMAIL_AWS_REGION ?? process.env.AWS_REGION ?? 'us-east-1',
+  },
   trust: {
     jwtSecret: process.env.TRUST_JWT_SECRET ?? process.env.JWT_SECRET,
     tokenTtlSeconds: parseInt(process.env.TRUST_TOKEN_TTL_SECONDS ?? '86400', 10),

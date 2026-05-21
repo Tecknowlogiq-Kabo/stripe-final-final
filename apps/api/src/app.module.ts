@@ -30,6 +30,7 @@ import { TrustModule } from './trust/trust.module';
 import { TrustIdModule } from './trustid/trustid.module';
 import { TrustIdWebhookModule } from './webhooks/trustid-webhook.module';
 import { S3Module } from './s3/s3.module';
+import { EmailModule } from './email/email.module';
 import { RedisModule } from './redis/redis.module';
 import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
 import { StripeExceptionFilter } from './common/filters/stripe-exception.filter';
@@ -94,6 +95,7 @@ import { PerUserThrottlerGuard } from './common/guards/per-user-throttler.guard'
     TrustModule,
     TrustIdModule,
     TrustIdWebhookModule,
+    EmailModule,
   ],
   providers: [
     // Order matters: more specific filters first

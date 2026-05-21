@@ -23,6 +23,6 @@ import { TrustIdModule } from '../trustid/trustid.module';
   ],
   controllers: [TrustController],
   providers: [TrustService, TrustRepository, TrustGuard],
-  exports: [TrustService, TrustGuard],
+  exports: [TrustService, TrustGuard, TrustRepository],
 })
 export class TrustModule {}

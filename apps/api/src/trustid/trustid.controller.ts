@@ -11,6 +11,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
+import * as QRCode from 'qrcode';
 import { TrustIdService } from './trustid.service';
 import { TrustService } from '../trust/trust.service';
 import { TrustRepository } from '../trust/trust.repository';
@@ -58,7 +59,20 @@ export class TrustIdController {
       dto.sendEmail === false ? 7 * 24 * 3600 : undefined,
     );
 
-    return { trustId: trustToken.trustId, guestLink: result.guestLinkUrl, containerId: result.containerId, linkId: result.linkId };
+    // Generate QR code for the guest link (for kiosk / scan-to-upload flows)
+    const qrCodeDataUrl = await QRCode.toDataURL(result.guestLinkUrl, {
+      width: 400,
+      margin: 2,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+
+    return {
+      trustId: trustToken.trustId,
+      guestLink: result.guestLinkUrl,
+      containerId: result.containerId,
+      linkId: result.linkId,
+      qrCodeDataUrl,
+    };
   }
 
   @Get('tokens')

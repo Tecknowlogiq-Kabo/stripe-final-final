@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service';
 import { RedisService } from '../redis/redis.service';
 import { S3Service } from '../s3/s3.service';
 import { TrustIdService } from '../trustid/trustid.service';
+import { EmailService } from '../email/email.service';
 
 interface TrustTokenPayload {
   sub: string;    // trust token ID
@@ -29,6 +30,7 @@ export class TrustService {
     private readonly redis: RedisService,
     private readonly s3Service: S3Service,
     private readonly trustIdService: TrustIdService,
+    private readonly emailService: EmailService,
   ) {
     this.ttlSeconds = this.configService.get<number>('trust.tokenTtlSeconds') ?? 86400;
     this.guestLinkBaseUrl = this.configService.get<string>('trust.guestLinkBaseUrl') ?? 'http://localhost:3000';
@@ -53,6 +55,7 @@ export class TrustService {
     clientRef?: string,
     branchId?: string,
     flexibleFields?: { flexibleFieldVersionId: string; fieldValueString: string }[],
+    sendEmailViaUs?: boolean,
   ): Promise<{ trustId: string; tokenId: string; expiresAt: Date; guestLink: string; containerId?: string }> {
     const tokenId = randomUUID();
     const jti = randomUUID();
@@ -100,6 +103,19 @@ export class TrustService {
         trustidGuestName: guestName,
       };
       metadata = mergedMeta;
+
+      // Optionally send the guest link via our own email system
+      if (sendEmailViaUs && guestEmail && guestEmail !== 'guest@example.com') {
+        this.emailService
+          .sendGuestLinkEmail({ to: guestEmail, name: guestName, guestLink })
+          .catch((emailErr) =>
+            this.logger.error({
+              message: 'Failed to send guest link email',
+              email: guestEmail,
+              err: emailErr,
+            }),
+          );
+      }
     } catch (err) {
       // TrustID creation failed — fall back to local-only guest link
       this.logger.warn({

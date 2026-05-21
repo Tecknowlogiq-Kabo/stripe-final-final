@@ -6,11 +6,14 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
 import { TrustIdContainerHandler } from './handlers/trustid-container.handler';
-import { TrustIdResultHandler } from './handlers/trustid-result.handler';
+import { TRUSTID_WEBHOOK_QUEUE } from './trustid-webhook-queue.constants';
+import { TrustIdWebhookJobData } from './trustid-webhook.processor';
 
 /**
  * Receives webhook callbacks from TrustID Cloud.
@@ -19,14 +22,16 @@ import { TrustIdResultHandler } from './handlers/trustid-result.handler';
  *
  *   1. Container Submitted — guest completed document upload.
  *      Identified by: Callback.WorkflowState === "Start"
+ *      → Handled inline (lightweight status update, no file transfer).
  *
  *   2. Result Notification — verification is complete.
  *      Identified by: Callback.WorkflowState === "Stop"
+ *      → Enqueued to BullMQ for async document retrieval & S3 upload.
  *
  * This controller MUST:
  *   - Be @Public() (TrustID has no JWT)
  *   - Be @SkipThrottle() (critical delivery path)
- *   - Return 200 immediately (don't block — process async)
+ *   - Return 200 immediately (don't block — enqueue and return)
  *
  * The callback URL that TrustID Cloud hits is:
  *   POST /api/v1/webhooks/trustid
@@ -40,7 +45,7 @@ export class TrustIdWebhookController {
 
   constructor(
     private readonly containerHandler: TrustIdContainerHandler,
-    private readonly resultHandler: TrustIdResultHandler,
+    @InjectQueue(TRUSTID_WEBHOOK_QUEUE) private readonly trustIdQueue: Queue<TrustIdWebhookJobData>,
   ) {}
 
   /**
@@ -55,13 +60,16 @@ export class TrustIdWebhookController {
 
     const callback = (payload.Callback ?? {}) as Record<string, unknown>;
     const workflowState = callback.WorkflowState as string | undefined;
+    const container = (payload.Container ?? {}) as Record<string, unknown>;
+    const containerId = container.Id as string | undefined;
+    const callbackId = callback.CallbackId as string | undefined;
 
     this.logger.log({
       message: 'TrustID webhook received',
       workflowState: workflowState ?? 'unknown',
-      callbackId: callback.CallbackId ?? 'unknown',
+      callbackId: callbackId ?? 'unknown',
       processName: callback.ProcessName ?? 'unknown',
-      containerId: ((payload.Container ?? {}) as Record<string, unknown>).Id ?? 'unknown',
+      containerId: containerId ?? 'unknown',
     });
 
     // Route to handler based on WorkflowState
@@ -69,36 +77,52 @@ export class TrustIdWebhookController {
     // "Stop" = Result Notification (verification complete)
     switch (workflowState) {
       case 'Start':
-        // Fire-and-forget — don't await, return 200 immediately
+        // Lightweight fire-and-forget — just updates token status to 'submitted'
         this.containerHandler
           .handle(payload as any)
           .catch((err) =>
             this.logger.error({
               message: 'Container submitted handler failed',
-              callbackId: callback.CallbackId,
+              callbackId,
               err,
             }),
           );
         break;
 
       case 'Stop':
-        // Fire-and-forget — processing takes time (image retrieval + S3 upload)
-        this.resultHandler
-          .handle(payload as any)
-          .catch((err) =>
-            this.logger.error({
-              message: 'Result notification handler failed',
-              callbackId: callback.CallbackId,
-              err,
-            }),
-          );
+        if (!containerId) {
+          this.logger.warn({
+            message: 'TrustID "Stop" webhook missing Container.Id — cannot enqueue',
+            callbackId: callbackId ?? 'unknown',
+          });
+        } else {
+          // Enqueue for async BullMQ processing — retry, DLQ, observability
+          this.trustIdQueue
+            .add(TRUSTID_WEBHOOK_QUEUE, { containerId, callbackId })
+            .then((job) =>
+              this.logger.log({
+                message: 'TrustID verification job enqueued',
+                jobId: job.id,
+                containerId,
+                callbackId: callbackId ?? 'unknown',
+              }),
+            )
+            .catch((err) =>
+              this.logger.error({
+                message: 'Failed to enqueue TrustID verification job',
+                containerId,
+                callbackId,
+                err,
+              }),
+            );
+        }
         break;
 
       default:
         this.logger.warn({
           message: 'Unknown TrustID webhook WorkflowState',
           workflowState: workflowState ?? 'missing',
-          callbackId: callback.CallbackId,
+          callbackId: callbackId,
         });
     }
 
