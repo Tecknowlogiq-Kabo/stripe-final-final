@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
-import { TrustService } from '@stripe-integration/domain';
+import { TrustService } from '../../trust/trust.service';;
 
 /**
  * Handles Stripe Checkout Session webhooks.

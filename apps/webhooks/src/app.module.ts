@@ -1,10 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import configuration, { validationSchema } from './config/configuration';
-import {
-  DatabaseModule,
-  RedisModule,
-} from '@stripe-integration/domain';
+import { DatabaseModule } from './database/database.module';
+import { RedisModule } from './redis/redis.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { TrustIdWebhookModule } from './webhooks/trustid-webhook.module';
 
@@ -18,8 +16,7 @@ import { TrustIdWebhookModule } from './webhooks/trustid-webhook.module';
  *   - NO throttler (webhooks must never be rate-limited)
  *   - NO health/metrics/reporting modules
  *
- * All domain services (stripe, trustid, trust, customers, etc.)
- * are imported from the shared @stripe-integration/domain package.
+ * All domain services are self-contained within this app.
  */
 @Module({
   imports: [

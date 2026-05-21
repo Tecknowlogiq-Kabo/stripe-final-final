@@ -4,7 +4,7 @@ import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import Stripe from 'stripe';
-import { EncryptionService } from '@stripe-integration/domain';
+import { EncryptionService } from '../crypto/encryption.service';;
 import { PaymentIntentHandler } from './handlers/payment-intent.handler';
 import { SetupIntentHandler } from './handlers/setup-intent.handler';
 import { SubscriptionHandler } from './handlers/subscription.handler';

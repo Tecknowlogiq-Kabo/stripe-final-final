@@ -1,11 +1,7 @@
-import { validationSchema } from '@stripe-integration/domain';
+import { validationSchema } from '../config/validation.schema';
 
 export { validationSchema };
 
-/**
- * Webhooks app configuration.
- * Extends the shared domain configuration with webhook-specific defaults.
- */
 export default () => ({
   port: parseInt(process.env.PORT ?? '3002', 10),
   apiPrefix: process.env.API_PREFIX ?? 'api/v1',
@@ -33,7 +29,29 @@ export default () => ({
   encryption: {
     key: process.env.ENCRYPTION_KEY,
   },
+  aws: {
+    region: process.env.AWS_REGION ?? 'us-east-1',
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    s3Bucket: process.env.S3_BUCKET ?? 'stripe-trust-files',
+    s3TrustPrefix: process.env.S3_TRUST_PREFIX ?? 'trust-approved/',
+  },
+  email: {
+    from: process.env.EMAIL_FROM ?? 'noreply@yourdomain.com',
+    region: process.env.EMAIL_AWS_REGION ?? process.env.AWS_REGION ?? 'us-east-1',
+  },
+  trust: {
+    jwtSecret: process.env.TRUST_JWT_SECRET ?? process.env.JWT_SECRET,
+    tokenTtlSeconds: parseInt(process.env.TRUST_TOKEN_TTL_SECONDS ?? '86400', 10),
+    guestLinkBaseUrl: process.env.TRUST_GUEST_LINK_BASE_URL ?? 'http://localhost:3000',
+  },
   trustid: {
+    apiBaseUrl: process.env.TRUSTID_API_BASE_URL ?? 'https://api.trustid.co.uk',
+    apiKey: process.env.TRUSTID_API_KEY,
+    username: process.env.TRUSTID_USERNAME,
+    password: process.env.TRUSTID_PASSWORD,
+    sessionTtlSeconds: parseInt(process.env.TRUSTID_SESSION_TTL_SECONDS ?? '3600', 10),
+    webhookCallbackBaseUrl: process.env.TRUSTID_WEBHOOK_CALLBACK_BASE_URL,
     webhookSecret: process.env.TRUSTID_WEBHOOK_SECRET,
   },
 });

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
-import { PaymentMethodsService } from '@stripe-integration/domain';
+import { PaymentMethodsService } from '../../payment-methods/payment-methods.service';;
 
 @Injectable()
 export class MandateHandler {

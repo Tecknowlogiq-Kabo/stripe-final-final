@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { TrustRepository, TrustIdService } from '@stripe-integration/domain';
+import { TrustRepository } from '../../trust/trust.repository';
+import { TrustIdService } from '../../trustid/trustid.service';;
 import {
   TrustIdWebhookPayload,
   extractContainerId,

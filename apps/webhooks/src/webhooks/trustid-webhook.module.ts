@@ -1,11 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
-import {
-  TrustModule,
-  TrustIdModule,
-  S3Module,
-} from '@stripe-integration/domain';
+import { TrustModule } from '../trust/trust.module';
+import { TrustIdModule } from '../trustid/trustid.module';
+import { S3Module } from '../s3/s3.module';;
 import { TrustIdWebhookController } from './trustid-webhook.controller';
 import { TrustIdContainerHandler } from './handlers/trustid-container.handler';
 import { TrustIdResultHandler } from './handlers/trustid-result.handler';

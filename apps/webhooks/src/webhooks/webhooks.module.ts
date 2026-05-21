@@ -1,15 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
-import {
-  CustomersModule,
-  PaymentIntentsModule,
-  SetupIntentsModule,
-  PaymentMethodsModule,
-  SubscriptionsModule,
-  AuditModule,
-  TrustModule,
-} from '@stripe-integration/domain';
+import { CustomersModule } from '../customers/customers.module';
+import { PaymentIntentsModule } from '../payment-intents/payment-intents.module';
+import { SetupIntentsModule } from '../setup-intents/setup-intents.module';
+import { PaymentMethodsModule } from '../payment-methods/payment-methods.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { AuditModule } from '../audit/audit.module';
+import { TrustModule } from '../trust/trust.module';;
 import { WebhooksController } from './webhooks.controller';
 import { WebhooksService } from './webhooks.service';
 import { WebhooksRepository } from './webhooks.repository';

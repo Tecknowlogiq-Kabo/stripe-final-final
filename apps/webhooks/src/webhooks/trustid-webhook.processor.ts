@@ -3,11 +3,9 @@ import { Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
-import {
-  TrustIdService,
-  TrustRepository,
-  S3Service,
-} from '@stripe-integration/domain';
+import { TrustIdService } from '../trustid/trustid.service';
+import { TrustRepository } from '../trust/trust.repository';
+import { S3Service } from '../s3/s3.service';;
 import { TRUSTID_WEBHOOK_QUEUE, TRUSTID_WEBHOOK_DLQ } from './trustid-webhook-queue.constants';
 
 // ---------------------------------------------------------------------------

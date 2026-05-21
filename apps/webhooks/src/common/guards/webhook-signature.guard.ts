@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import Stripe from 'stripe';
-import { StripeService } from '@stripe-integration/domain';
+import { StripeService } from '../../stripe/stripe.service';;
 
 @Injectable()
 export class WebhookSignatureGuard implements CanActivate {

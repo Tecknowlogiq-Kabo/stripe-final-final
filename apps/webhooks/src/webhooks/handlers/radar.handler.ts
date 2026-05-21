@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
-import { AuditService } from '@stripe-integration/domain';
+import { AuditService } from '../../audit/audit.service';;
 
 @Injectable()
 export class RadarHandler {

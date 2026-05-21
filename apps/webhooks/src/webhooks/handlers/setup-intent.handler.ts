@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
-import { SetupIntentsService } from '@stripe-integration/domain';
+import { SetupIntentsService } from '../../setup-intents/setup-intents.service';;
 
 @Injectable()
 export class SetupIntentHandler {
