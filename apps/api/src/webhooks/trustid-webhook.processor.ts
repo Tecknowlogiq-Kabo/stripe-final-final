@@ -7,6 +7,8 @@ import { TRUSTID_WEBHOOK_QUEUE, TRUSTID_WEBHOOK_DLQ } from './trustid-webhook-qu
 import { TrustIdService } from '../trustid/trustid.service';
 import { TrustRepository } from '../trust/trust.repository';
 import { S3Service } from '../s3/s3.service';
+import { DBS_STATUS_TO_TOKEN_STATUS, interpretDBSStatus, isDBSTerminal } from '../trustid/dbs-status.constants';
+import type { DBSStatusCode } from '../trustid/dbs-status.constants';
 
 // ---------------------------------------------------------------------------
 // Job Data
@@ -175,13 +177,104 @@ export class TrustIdWebhookProcessor extends WorkerHost {
       // Non-fatal — continue with approval even if PDF fails
     }
 
-    // ---- 5. Approve the trust token ----
-    await this.trustRepo.updateStatus(trustToken.id, 'approved');
+    // ---- 4.5. Store assessment metadata JSON in S3 alongside blobs ----
+    try {
+      // Compute DBS interpretation here (also used in step 5 below)
+      const s3RawStatus = (c.Status as string) ?? null;
+      const s3DbsInterpretation = interpretDBSStatus(s3RawStatus);
+
+      const assessmentPayload = {
+        containerId,
+        status: s3RawStatus,
+        dbsInterpretation: s3DbsInterpretation,
+        processedAt: new Date().toISOString(),
+        documents: docs.map((doc) => ({
+          id: doc.Id,
+          name: doc.Name,
+          type: doc.DocumentTypeName,
+          status: doc.Status,
+          assessment: {
+            resultsSummary: doc.DocumentResultsSummary ?? null,
+            generalProperties: doc.GeneralDocumentProperties ?? null,
+            feedbackFeatures: doc.FeedbackFeatures ?? null,
+            missingFieldsProperties: doc.MissingFieldsProperties ?? null,
+            mrzValidationProperties: doc.MrzValidationProperties ?? null,
+          },
+          imageCount: ((doc.Images ?? []) as unknown[]).length,
+        })),
+      };
+
+      const assessmentKey = `${s3Prefix}/assessment.json`;
+      const assessmentJson = Buffer.from(JSON.stringify(assessmentPayload, null, 2), 'utf-8');
+      await this.s3Service.upload(assessmentKey, assessmentJson, 'application/json');
+      totalBytes += assessmentJson.length;
+
+      this.logger.log({
+        message: 'Assessment metadata stored in S3',
+        containerId,
+        s3Key: assessmentKey,
+        documentCount: docs.length,
+      });
+    } catch (err) {
+      this.logger.error({
+        message: 'Failed to store assessment metadata in S3',
+        containerId,
+        err,
+      });
+      // Non-fatal — continue even if metadata upload fails
+    }
+
+    // ---- 5. Determine token status based on DBS status ----
+    // The "Stop" webhook means TrustID processing is complete, but the DBS
+    // check itself may still be in-progress or at a terminal state.
+    const rawStatus = (c.Status as string) ?? null;
+    const dbsInterpretation = interpretDBSStatus(rawStatus);
+    const dbsMappedStatus = rawStatus
+      ? DBS_STATUS_TO_TOKEN_STATUS[rawStatus as DBSStatusCode]
+      : undefined;
+
+    // Fall back to 'approved' if no DBS status mapping (e.g. non-DBS check types)
+    const tokenStatus = dbsMappedStatus ?? 'approved';
+
+    await this.trustRepo.updateStatus(trustToken.id, tokenStatus);
+
+    // ---- 6. Update token metadata with DBS status info ----
+    if (trustToken.metadata) {
+      try {
+        const meta = JSON.parse(trustToken.metadata);
+        meta.dbsStatus = rawStatus;
+        meta.dbsInterpretation = dbsInterpretation;
+        meta.dbsTerminal = rawStatus ? isDBSTerminal(rawStatus) : null;
+        // Extract document-level assessment summaries
+        const docsArr = (c.Documents as Record<string, unknown>[]) ?? [];
+        meta.documentAssessment = docsArr.map((doc) => ({
+          id: doc.Id,
+          name: doc.Name,
+          status: doc.Status,
+          resultsSummary: doc.DocumentResultsSummary ?? null,
+          generalProperties: doc.GeneralDocumentProperties ?? null,
+          feedbackFeatures: doc.FeedbackFeatures ?? null,
+          missingFieldsProperties: doc.MissingFieldsProperties ?? null,
+          mrzValidationProperties: doc.MrzValidationProperties ?? null,
+        }));
+        await this.trustRepo.updateMetadata(trustToken.id, JSON.stringify(meta));
+      } catch {
+        // Non-fatal — metadata update failure shouldn't block the flow
+        this.logger.warn({
+          message: 'Failed to update trust token metadata with DBS status',
+          tokenId: trustToken.id,
+          containerId,
+        });
+      }
+    }
 
     this.logger.log({
       message: 'TrustID webhook job complete — documents stored in S3',
       containerId,
       tokenId: trustToken.id,
+      tokenStatus,
+      dbsStatus: rawStatus,
+      dbsInterpretation,
       totalBytes,
     });
   }

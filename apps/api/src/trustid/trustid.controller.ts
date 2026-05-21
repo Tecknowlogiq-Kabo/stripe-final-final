@@ -13,6 +13,7 @@ import {
 import { Response } from 'express';
 import * as QRCode from 'qrcode';
 import { TrustIdService } from './trustid.service';
+import { interpretDBSStatus } from './dbs-status.constants';
 import { TrustService } from '../trust/trust.service';
 import { TrustRepository } from '../trust/trust.repository';
 import { CreateGuestLinkDto } from './dto/create-guest-link.dto';
@@ -47,7 +48,11 @@ export class TrustIdController {
       branchId: dto.branchId,
       applicationFlexibleFieldValues: fields,
       clientApplicationReference: dto.clientApplicationReference,
+      digitalIdentityScheme: dto.digitalIdentityScheme,
+      rtraAgentName: dto.rtraAgentName,
+      rtwCompanyName: dto.rtwCompanyName,
       sendEmail: dto.sendEmail,
+      callbackHeaders: dto.callbackHeaders,
     });
 
     const trustToken = await this.trustService.generateTrustToken(
@@ -107,16 +112,30 @@ export class TrustIdController {
     this.logger.log({ message: 'Retrieving TrustID container', containerId });
     const c = await this.trustIdService.retrieveDocumentContainer(containerId) as Record<string, unknown>;
     const docs = (c.Documents ?? []) as Record<string, unknown>[];
+
+    // Interpret the DBS status code if present
+    const rawStatus = (c.Status as string) ?? null;
+    const dbsInterpretation = rawStatus ? interpretDBSStatus(rawStatus) : null;
+
     return {
       containerId: c.Id ?? containerId,
       applicationCode: c.ApplicationContainerCode ?? null,
-      status: c.Status ?? null,
+      status: rawStatus,
+      dbsInterpretation,
       applicationName: c.ApplicationName ?? null,
       documents: docs.map((doc: Record<string, unknown>) => ({
         id: doc.Id,
         name: doc.Name,
         type: doc.DocumentTypeName,
         status: doc.Status,
+        // Document assessment feedback (as provided by TrustID)
+        assessment: {
+          resultsSummary: doc.DocumentResultsSummary ?? null,
+          generalProperties: doc.GeneralDocumentProperties ?? null,
+          feedbackFeatures: doc.FeedbackFeatures ?? null,
+          missingFieldsProperties: doc.MissingFieldsProperties ?? null,
+          mrzValidationProperties: doc.MrzValidationProperties ?? null,
+        },
         images: ((doc.Images ?? []) as Record<string, unknown>[]).map((img: Record<string, unknown>) => ({ id: img.Id, name: img.Name })),
       })),
     };

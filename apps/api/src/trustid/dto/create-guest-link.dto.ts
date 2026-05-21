@@ -66,6 +66,14 @@ export class CreateGuestLinkDto {
   digitalIdentityScheme?: number;
 
   @IsOptional()
+  @IsString()
+  rtraAgentName?: string;
+
+  @IsOptional()
+  @IsString()
+  rtwCompanyName?: string;
+
+  @IsOptional()
   @IsBoolean()
   sendEmail?: boolean;
 

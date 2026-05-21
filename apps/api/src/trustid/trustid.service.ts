@@ -8,13 +8,28 @@ import { randomUUID } from 'crypto';
 // Types — TrustID Cloud API (Workflow 4)
 // ---------------------------------------------------------------------------
 
+/**
+ * Digital Identity Schemes supported by TrustID Cloud.
+ * Passed as `DigitalIdentityScheme` in createGuestLink requests.
+ */
+export enum DigitalIdentityScheme {
+  /** Right To Rent (RTR) — requires RTRAgentName */
+  RightToRent = 1,
+  /** Right To Work (RTW) — optionally use RTWCompanyName */
+  RightToWork = 2,
+}
+
 export interface CreateGuestLinkParams {
   email: string;
   name: string;
   branchId?: string;
   applicationFlexibleFieldValues?: { flexibleFieldVersionId: string; fieldValueString: string }[];
   clientApplicationReference?: string;
-  digitalIdentityScheme?: number;
+  digitalIdentityScheme?: DigitalIdentityScheme | number;
+  /** Agent name for Right To Rent (RTR) share code downloads. Required when digitalIdentityScheme=1. */
+  rtraAgentName?: string;
+  /** Custom company name for Right To Work (RTW) share code document. */
+  rtwCompanyName?: string;
   sendEmail?: boolean;
   callbackHeaders?: { Header: string; Value: string }[];
 }
@@ -238,10 +253,16 @@ export class TrustIdService {
       ApplicationFlexibleFieldValues: fields,
       ContainerEventCallbackUrl: callbackUrl,
       ContainerEventCallbackHeaders: params.callbackHeaders ?? [],
-      ClientApplicationReference: params.clientApplicationReference ?? '',
       SendEmail: params.sendEmail ?? true,
     };
+    // Optional fields — only include when explicitly provided
+    // (TrustID expects these to be absent, not empty strings, when unused)
+    if (params.clientApplicationReference !== undefined && params.clientApplicationReference !== '') {
+      body.ClientApplicationReference = params.clientApplicationReference;
+    }
     if (params.digitalIdentityScheme !== undefined) body.DigitalIdentityScheme = params.digitalIdentityScheme;
+    if (params.rtraAgentName !== undefined) body.RTRAgentName = params.rtraAgentName;
+    if (params.rtwCompanyName !== undefined) body.RTWCompanyName = params.rtwCompanyName;
 
     this.logger.log({ message: 'Creating TrustID guest link', email: params.email, branchId, callbackUrl });
 
