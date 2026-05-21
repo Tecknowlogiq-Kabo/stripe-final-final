@@ -11,7 +11,7 @@ import { Queue } from 'bullmq';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
-import { TrustIdContainerHandler } from './handlers/trustid-container.handler';
+import { TrustIdContainerHandler, extractContainerId, TrustIdWebhookPayload } from './handlers/trustid-container.handler';
 import { TRUSTID_WEBHOOK_QUEUE } from './trustid-webhook-queue.constants';
 import { TrustIdWebhookJobData } from './trustid-webhook.processor';
 
@@ -56,13 +56,12 @@ export class TrustIdWebhookController {
   @Post('trustid')
   @HttpCode(HttpStatus.OK)
   async handleTrustIdWebhook(@Req() req: Request) {
-    const payload = req.body as Record<string, unknown>;
+    const payload = req.body as TrustIdWebhookPayload;
 
-    const callback = (payload.Callback ?? {}) as Record<string, unknown>;
-    const workflowState = callback.WorkflowState as string | undefined;
-    const container = (payload.Container ?? {}) as Record<string, unknown>;
-    const containerId = container.Id as string | undefined;
-    const callbackId = callback.CallbackId as string | undefined;
+    const callback = payload.Callback ?? {};
+    const workflowState = callback.WorkflowState;
+    const containerId = extractContainerId(payload);
+    const callbackId = callback.CallbackId;
 
     this.logger.log({
       message: 'TrustID webhook received',
@@ -79,7 +78,7 @@ export class TrustIdWebhookController {
       case 'Start':
         // Lightweight fire-and-forget — just updates token status to 'submitted'
         this.containerHandler
-          .handle(payload as any)
+          .handle(payload)
           .catch((err) =>
             this.logger.error({
               message: 'Container submitted handler failed',

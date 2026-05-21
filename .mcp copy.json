@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "pencil": {
+      "transport": "stdio",
+      "command": "/Applications/Pencil.app/Contents/Resources/app.asar.unpacked/out/mcp-server-darwin-arm64",
+      "args": ["--app", "desktop"],
+      "env": {}
+    },
+    "firecrawl-mcp": {
+      "command": "npx",
+      "args": ["-y", "firecrawl-mcp"],
+      "env": {
+        "FIRECRAWL_API_KEY": "${FIRECRAWL_API_KEY}",
+        "FIRECRAWL_API_URL": "${FIRECRAWL_API_URL:-https://api.firecrawl.dev}"
+      }
+    }
+  }
+}

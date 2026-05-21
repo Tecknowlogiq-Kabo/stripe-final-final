@@ -2,6 +2,78 @@ import { Injectable, Logger } from '@nestjs/common';
 import { TrustService } from '../../trust/trust.service';
 import { TrustRepository } from '../../trust/trust.repository';
 
+// ---------------------------------------------------------------------------
+// Actual TrustID webhook payload (as documented)
+// ---------------------------------------------------------------------------
+//
+// Both "Start" and "Stop" webhooks have identical structure:
+//
+// {
+//   "Callback": {
+//     "WorkflowName": "AutoReferral",
+//     "WorkflowState": "Start" | "Stop",
+//     "CallbackId": "db051177-...",
+//     "WorkflowStorage": [
+//       { "Key": "ContainerId",   "Value": "54eaaf9a-..." },
+//       { "Key": "DocumentId",    "Value": null },
+//       { "Key": "ClientApplicationReference", "Value": null }
+//     ]
+//   },
+//   "Response": {
+//     "ContainerId": "54eaaf9a-..."
+//   }
+// }
+
+export interface TrustIdWorkflowStorageItem {
+  Key: string;
+  Value: string | null;
+}
+
+export interface TrustIdWebhookCallback {
+  CallbackId?: string;
+  ProcessName?: string;
+  State?: number;
+  WorkflowName?: string;
+  WorkflowState?: string;
+  ErrorMessage?: string | null;
+  WorkflowStorage?: TrustIdWorkflowStorageItem[];
+}
+
+export interface TrustIdWebhookResponse {
+  ContainerId?: string;
+  Success?: boolean;
+  Message?: string;
+}
+
+export interface TrustIdWebhookPayload {
+  Callback?: TrustIdWebhookCallback;
+  Response?: TrustIdWebhookResponse;
+}
+
+// ---------------------------------------------------------------------------
+// Shared helper — extract ContainerId from the real payload structure
+// ---------------------------------------------------------------------------
+
+export function extractContainerId(payload: TrustIdWebhookPayload): string | undefined {
+  // Primary: WorkflowStorage array
+  const storage = payload.Callback?.WorkflowStorage;
+  if (storage) {
+    const entry = storage.find((item) => item.Key === 'ContainerId');
+    if (entry?.Value) return entry.Value;
+  }
+
+  // Fallback: Response.ContainerId
+  if (payload.Response?.ContainerId) {
+    return payload.Response.ContainerId;
+  }
+
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Handler
+// ---------------------------------------------------------------------------
+
 /**
  * Handles the TrustID "Container Submitted" webhook callback.
  *
@@ -14,19 +86,6 @@ import { TrustRepository } from '../../trust/trust.repository';
  *   Callback.WorkflowName  === "AutoReferral"
  *   Callback.WorkflowState === "Start"
  */
-export interface TrustIdCallbackPayload {
-  Callback?: {
-    CallbackId?: string;
-    ProcessName?: string;
-    State?: number;
-    WorkflowName?: string;
-  };
-  Container?: {
-    Id?: string;
-    ApplicationContainerCode?: string;
-  };
-}
-
 @Injectable()
 export class TrustIdContainerHandler {
   private readonly logger = new Logger(TrustIdContainerHandler.name);
@@ -38,16 +97,16 @@ export class TrustIdContainerHandler {
 
   /**
    * Handle a Container Submitted webhook from TrustID.
-   * Extracts the ContainerId, maps it to a trust token, and marks
-   * the token status as 'submitted' — awaiting verification.
+   * Extracts the ContainerId from Callback.WorkflowStorage, maps it to a
+   * trust token, and marks the token status as 'submitted'.
    */
-  async handle(payload: TrustIdCallbackPayload): Promise<void> {
-    const containerId = payload.Container?.Id;
+  async handle(payload: TrustIdWebhookPayload): Promise<void> {
+    const containerId = extractContainerId(payload);
     const callbackId = payload.Callback?.CallbackId;
 
     if (!containerId) {
       this.logger.warn({
-        message: 'TrustID container submitted webhook missing Container.Id',
+        message: 'TrustID container-submitted webhook — could not extract ContainerId',
         callbackId: callbackId ?? 'unknown',
       });
       return;
@@ -57,17 +116,13 @@ export class TrustIdContainerHandler {
       message: 'TrustID container submitted — guest completed upload',
       containerId,
       callbackId: callbackId ?? 'unknown',
-      applicationCode: payload.Container?.ApplicationContainerCode,
     });
 
     // Look up the trust token by resourceId (set to containerId when
-    // the TrustID guest link was created). For TrustID resource type,
-    // the token's resourceId is the ContainerId.
+    // the TrustID guest link was created).
     const trustToken = await this.trustRepo.findByResourceId(containerId);
 
     if (!trustToken) {
-      // If the containerId was stored in the token's metadata instead,
-      // we can still proceed by recording the submission.
       this.logger.warn({
         message: 'No trust token found for containerId — submission tracked but not linked',
         containerId,
@@ -83,7 +138,6 @@ export class TrustIdContainerHandler {
       message: 'Trust token updated to submitted — awaiting verification',
       tokenId: trustToken.id,
       containerId,
-      status: trustToken.status,
     });
   }
 }

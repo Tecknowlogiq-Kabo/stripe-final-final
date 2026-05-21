@@ -10,3 +10,4 @@ logs/
 .turbo/
 oracle_data/
 .playwright-cli/
+.mcp.json

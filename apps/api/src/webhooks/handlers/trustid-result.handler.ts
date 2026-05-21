@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TrustRepository } from '../../trust/trust.repository';
 import { TrustIdService } from '../../trustid/trustid.service';
+import {
+  TrustIdWebhookPayload,
+  extractContainerId,
+} from './trustid-container.handler';
 
 /**
  * Handles the TrustID "Result Notification" webhook callback.
@@ -12,23 +16,11 @@ import { TrustIdService } from '../../trustid/trustid.service';
  * upload) is handled by the {@link TrustIdWebhookProcessor}. This handler
  * remains available for direct invocation (e.g., tests, admin triggers,
  * manual retry) but the primary webhook path enqueues to BullMQ.
+ *
+ * ContainerId is extracted from Callback.WorkflowStorage (array of
+ * Key/Value pairs) or Response.ContainerId — matching the actual
+ * TrustID webhook schema as documented.
  */
-
-export interface TrustIdResultPayload {
-  Callback?: {
-    CallbackId?: string;
-    ProcessName?: string;
-    State?: number;
-    WorkflowName?: string;
-    ErrorMessage?: string;
-  };
-  Container?: {
-    Id?: string;
-    ApplicationContainerCode?: string;
-    ApplicationId?: string;
-  };
-}
-
 @Injectable()
 export class TrustIdResultHandler {
   private readonly logger = new Logger(TrustIdResultHandler.name);
@@ -48,17 +40,17 @@ export class TrustIdResultHandler {
    * The caller is responsible for the actual document retrieval and
    * S3 upload (typically delegated to {@link TrustIdWebhookProcessor}).
    */
-  async handle(payload: TrustIdResultPayload): Promise<{
+  async handle(payload: TrustIdWebhookPayload): Promise<{
     containerId: string;
     tokenId: string;
     userId: string | null;
   } | null> {
-    const containerId = payload.Container?.Id;
+    const containerId = extractContainerId(payload);
     const callbackId = payload.Callback?.CallbackId;
 
     if (!containerId) {
       this.logger.warn({
-        message: 'TrustID result notification missing Container.Id',
+        message: 'TrustID result notification — could not extract ContainerId',
         callbackId: callbackId ?? 'unknown',
       });
       return null;
