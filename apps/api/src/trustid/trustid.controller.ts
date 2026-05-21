@@ -10,6 +10,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import * as QRCode from 'qrcode';
 import { TrustIdService } from './trustid.service';
@@ -27,6 +28,7 @@ export class TrustIdController {
     private readonly trustIdService: TrustIdService,
     private readonly trustService: TrustService,
     private readonly trustRepo: TrustRepository,
+    private readonly configService: ConfigService,
   ) {}
 
   @Post('guest-link')
@@ -52,7 +54,9 @@ export class TrustIdController {
       rtraAgentName: dto.rtraAgentName,
       rtwCompanyName: dto.rtwCompanyName,
       sendEmail: dto.sendEmail,
-      callbackHeaders: dto.callbackHeaders,
+      callbackHeaders: dto.callbackHeaders && dto.callbackHeaders.length > 0
+        ? dto.callbackHeaders
+        : this.getDefaultCallbackHeaders(),
     });
 
     const trustToken = await this.trustService.generateTrustToken(
@@ -160,5 +164,19 @@ export class TrustIdController {
     res.setHeader('Content-Disposition', `attachment; filename="trustid-report-${containerId}.pdf"`);
     res.setHeader('Cache-Control', 'private, max-age=3600');
     res.send(pdf);
+  }
+
+  /**
+   * Default callback headers injected into every TrustID guest link.
+   * Includes the shared webhook secret as 'x-trustid-secret' so that
+   * TrustID Cloud returns it in webhook callbacks, enabling the
+   * TrustIdWebhookGuard to verify authenticity.
+   */
+  private getDefaultCallbackHeaders(): Array<{ Header: string; Value: string }> {
+    const webhookSecret = this.configService.get<string>('trustid.webhookSecret');
+    if (!webhookSecret) {
+      return [];
+    }
+    return [{ Header: 'x-trustid-secret', Value: webhookSecret }];
   }
 }

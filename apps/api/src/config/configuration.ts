@@ -67,5 +67,6 @@ export default () => ({
     password: process.env.TRUSTID_PASSWORD,
     sessionTtlSeconds: parseInt(process.env.TRUSTID_SESSION_TTL_SECONDS ?? '3600', 10),
     webhookCallbackBaseUrl: process.env.TRUSTID_WEBHOOK_CALLBACK_BASE_URL,
+    webhookSecret: process.env.TRUSTID_WEBHOOK_SECRET,
   },
 });
