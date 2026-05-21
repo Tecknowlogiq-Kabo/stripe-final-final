@@ -47,8 +47,20 @@ export class TrustIdService {
   private readonly username: string;
   private readonly password: string;
   private readonly webhookCallbackBaseUrl: string;
-  // In-memory session cache with TTL
-  private sessionData: { sessionId: string; deviceId: string; expiresAt: number } | null = null;
+  private readonly sessionTtlMs: number;
+  // Stable deviceId — generated once per process lifetime.
+  // TrustID expects the same DeviceId across logins (it identifies the
+  // calling service, not each individual session).
+  private readonly deviceId: string;
+  // In-memory session cache with TTL.
+  // Null means no active session; expired session triggers re-login
+  // with the same deviceId.
+  private sessionData: { sessionId: string; expiresAt: number } | null = null;
+
+  // Refresh the session 30s before it actually expires so a mid-flight
+  // operation (e.g. retrieving 20 images from a container) doesn't fail
+  // because the session expired between image 12 and image 13.
+  private static readonly SESSION_REFRESH_MARGIN_MS = 30_000;
 
   constructor(
     private readonly configService: ConfigService,
@@ -58,15 +70,22 @@ export class TrustIdService {
     this.apiKey = this.configService.get<string>('trustid.apiKey') ?? '';
     this.username = this.configService.get<string>('trustid.username') ?? '';
     this.password = this.configService.get<string>('trustid.password') ?? '';
+    this.sessionTtlMs =
+      (this.configService.get<number>('trustid.sessionTtlSeconds') ?? 3600) * 1000;
     this.webhookCallbackBaseUrl =
       this.configService.get<string>('trustid.webhookCallbackBaseUrl') ??
       this.configService.get<string>('cors.origin') ??
       'http://localhost:3001';
+    // Generate a stable deviceId once — re-used across all logins for
+    // the lifetime of this NestJS service instance.
+    this.deviceId = randomUUID();
 
     this.logger.log({
       message: 'TrustIdService initialized',
       baseUrl: this.baseUrl,
       webhookCallbackBaseUrl: this.webhookCallbackBaseUrl,
+      deviceId: this.deviceId,
+      sessionTtlMinutes: this.sessionTtlMs / 60_000,
       hasApiKey: !!this.apiKey,
       hasCredentials: !!(this.username && this.password),
     });
@@ -76,13 +95,17 @@ export class TrustIdService {
   // Auth helpers
   // -----------------------------------------------------------------------
 
-  private async getDeviceId(): Promise<string> {
-    return randomUUID();
-  }
-
+  /**
+   * Returns the cached session if it's still valid (with a 30s margin to
+   * prevent mid-operation expiry). Otherwise triggers a re-login using
+   * the same stable deviceId.
+   */
   private async ensureSession(): Promise<{ sessionId: string; deviceId: string }> {
-    if (this.sessionData && Date.now() < this.sessionData.expiresAt) {
-      return { sessionId: this.sessionData.sessionId, deviceId: this.sessionData.deviceId };
+    if (
+      this.sessionData &&
+      Date.now() < this.sessionData.expiresAt - TrustIdService.SESSION_REFRESH_MARGIN_MS
+    ) {
+      return { sessionId: this.sessionData.sessionId, deviceId: this.deviceId };
     }
 
     if (!this.username || !this.password || !this.apiKey) {
@@ -93,18 +116,19 @@ export class TrustIdService {
   }
 
   /**
-   * Authenticate with TrustID Cloud.
+   * Authenticate with TrustID Cloud using the stable deviceId.
    * POST /VPE/session/login/
+   *
+   * On success the returned SessionId is cached with a TTL derived from
+   * the configured `trustid.sessionTtlSeconds` (default 1 hour).
    */
   async login(): Promise<{ sessionId: string; deviceId: string }> {
-    const deviceId = await this.getDeviceId();
-
-    this.logger.log({ message: 'TrustID login', deviceId });
+    this.logger.log({ message: 'TrustID login', deviceId: this.deviceId });
 
     const { data } = await firstValueFrom(
       this.httpService.post<{ Success?: boolean; SessionId?: string; sessionId?: string; Message?: string }>(
         `${this.baseUrl}/VPE/session/login/`,
-        { Username: this.username, Password: this.password, DeviceId: deviceId },
+        { Username: this.username, Password: this.password, DeviceId: this.deviceId },
         { headers: this.baseHeaders() },
       ),
     );
@@ -116,9 +140,13 @@ export class TrustIdService {
       );
     }
 
-    this.sessionData = { sessionId, deviceId, expiresAt: Date.now() + 15 * 60 * 1000 };
-    this.logger.log({ message: 'TrustID login succeeded', deviceId });
-    return { sessionId, deviceId };
+    this.sessionData = { sessionId, expiresAt: Date.now() + this.sessionTtlMs };
+    this.logger.log({
+      message: 'TrustID login succeeded',
+      deviceId: this.deviceId,
+      sessionTtlMinutes: this.sessionTtlMs / 60_000,
+    });
+    return { sessionId, deviceId: this.deviceId };
   }
 
   /**
