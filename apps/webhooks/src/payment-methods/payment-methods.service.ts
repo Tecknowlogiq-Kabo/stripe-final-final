@@ -95,19 +95,19 @@ export class PaymentMethodsService {
       return;
     }
 
-    let customer: StripeCustomer | null = null;
+    let customer: StripeCustomer;
     try {
       customer = await this.customersService.findByStripeId(
         stripePM.customer as string,
       );
     } catch (err) {
-      this.logger.warn({ message: 'upsertFromStripeEvent: customer lookup failed — skipping', stripeCustomerId: stripePM.customer, err });
-      return;
-    }
-
-    if (!customer) {
-      this.logger.warn({ message: 'upsertFromStripeEvent: customer not found in local DB — skipping', stripeCustomerId: stripePM.customer });
-      return;
+      this.logger.warn({
+        message: `Payment method ${stripePM.id} skipped — customer ${stripePM.customer as string} not found yet, will retry`,
+        stripePaymentMethodId: stripePM.id,
+        stripeCustomerId: stripePM.customer,
+        err,
+      });
+      throw err;
     }
 
     const fields = this.extractPmFields(stripePM);

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import configuration, { validationSchema } from './config/configuration';
 import { DatabaseModule } from './database/database.module';
@@ -8,6 +8,7 @@ import { EmailModule } from './email/email.module';
 import { CryptoModule } from './crypto/crypto.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { TrustIdWebhookModule } from './webhooks/trustid-webhook.module';
+import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 
 /**
  * Webhooks-only NestJS application.
@@ -38,4 +39,8 @@ import { TrustIdWebhookModule } from './webhooks/trustid-webhook.module';
     TrustIdWebhookModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(CorrelationIdMiddleware).forRoutes('*');
+  }
+}

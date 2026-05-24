@@ -27,6 +27,9 @@
       "dependsOn": ["^build"],
       "outputs": ["coverage/**"]
     },
-    "lint": {}
+    "lint": {},
+    "@repo/shared-types#build": {
+      "outputs": ["dist/**"]
+    }
   }
 }

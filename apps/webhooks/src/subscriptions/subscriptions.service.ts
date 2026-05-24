@@ -215,8 +215,14 @@ export class SubscriptionsService {
         (stripeSub.default_payment_method as string) ?? null,
         customer.id,
       );
-    } catch {
-      return;
+    } catch (err) {
+      this.logger.warn({
+        message: `Subscription ${stripeSub.id} skipped — customer ${stripeSub.customer as string} not found yet, will retry`,
+        stripeSubscriptionId: stripeSub.id,
+        stripeCustomerId: stripeSub.customer,
+        err,
+      });
+      throw err;
     }
   }
 

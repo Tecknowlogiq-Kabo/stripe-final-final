@@ -16,7 +16,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/migrations/data-source.ts",
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/migrations/data-source.ts",
-    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/migrations/data-source.ts"
+    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/migrations/data-source.ts",
+    "seed:dev": "ts-node -r tsconfig-paths/register src/database/seeds/dev.seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1050.0",

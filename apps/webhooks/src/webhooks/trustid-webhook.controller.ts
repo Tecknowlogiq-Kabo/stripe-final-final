@@ -89,15 +89,16 @@ export class TrustIdWebhookController {
 
     switch (workflowState) {
       case 'Start':
-        this.containerHandler
-          .handle(payload)
-          .catch((err) =>
-            this.logger.error({
-              message: 'Container submitted handler failed',
-              callbackId,
-              err,
-            }),
-          );
+        try {
+          await this.containerHandler.handle(payload);
+        } catch (err) {
+          this.logger.error({
+            message: 'Container submitted handler failed',
+            callbackId,
+            err,
+          });
+          throw err;
+        }
         break;
 
       case 'Stop':

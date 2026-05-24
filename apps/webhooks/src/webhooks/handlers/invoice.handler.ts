@@ -61,6 +61,7 @@ export class InvoiceHandler {
               stripeSubscriptionId: invoice.subscription,
               err,
             });
+            throw err;
           }
           this.logger.log({
             message: 'Invoice payment succeeded',
