@@ -12,8 +12,9 @@ export class CreateSubscriptionDto {
   @IsUUID()
   customerId: string;
 
+  @IsOptional()
   @IsString()
-  priceId: string;
+  priceId?: string;
 
   @IsOptional()
   @IsString()

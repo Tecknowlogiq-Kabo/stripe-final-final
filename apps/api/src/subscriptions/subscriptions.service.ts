@@ -31,67 +31,101 @@ export class SubscriptionsService {
   ): Promise<StripeSubscription> {
     const customer = await this.customersService.findById(dto.customerId);
 
-    const existingForCustomer = await this.repo.findActiveByCustomerAndPrice(dto.customerId, dto.priceId);
-    if (existingForCustomer) {
-      this.logger.log({ message: 'Returning existing active subscription', customerId: dto.customerId });
-      return this.findById(existingForCustomer.id);
+    if (dto.priceId) {
+      const existingForCustomer = await this.repo.findActiveByCustomerAndPrice(dto.customerId, dto.priceId);
+      if (existingForCustomer) {
+        this.logger.log({ message: 'Returning existing active subscription', customerId: dto.customerId });
+        return this.findById(existingForCustomer.id);
+      }
     }
 
-    const createParams: Stripe.SubscriptionCreateParams = {
-      customer: customer.stripeCustomerId,
-      items: [{ price: dto.priceId }],
-      metadata: { ...dto.metadata, internal_customer_id: customer.id },
-      expand: ['latest_invoice.payment_intent'],
-    };
-    if (dto.paymentMethodId) {
-      createParams.default_payment_method = dto.paymentMethodId;
-    }
-    if (dto.trialPeriodDays) {
-      createParams.trial_period_days = dto.trialPeriodDays;
+    if (dto.priceId) {
+      const createParams: Stripe.SubscriptionCreateParams = {
+        customer: customer.stripeCustomerId,
+        items: [{ price: dto.priceId }],
+        metadata: { ...dto.metadata, internal_customer_id: customer.id },
+        expand: ['latest_invoice.payment_intent'],
+      };
+      if (dto.paymentMethodId) {
+        createParams.default_payment_method = dto.paymentMethodId;
+      }
+      if (dto.trialPeriodDays) {
+        createParams.trial_period_days = dto.trialPeriodDays;
+      }
+
+      const stripeSub = await this.stripeService.subscriptions.create(
+        createParams,
+        { idempotencyKey },
+      );
+
+      const alreadySaved = await this.repo.findByStripeId(stripeSub.id);
+      if (alreadySaved) return this.findById(alreadySaved.id);
+
+      this.logger.log({
+        message: 'Subscription created',
+        stripeSubscriptionId: stripeSub.id,
+        status: stripeSub.status,
+        customerId: customer.id,
+      });
+
+      const id = randomUUID();
+      try {
+        await this.repo.insert(
+          id,
+          stripeSub.id,
+          stripeSub.status,
+          new Date(stripeSub.current_period_start * 1000),
+          new Date(stripeSub.current_period_end * 1000),
+          stripeSub.cancel_at_period_end ? 1 : 0,
+          stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : null,
+          stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null,
+          dto.priceId,
+          dto.paymentMethodId ?? null,
+          customer.id,
+          dto.metadata ? JSON.stringify(dto.metadata) : null,
+        );
+      } catch (err) {
+        // Prevent orphaned Stripe subscription when local insert fails
+        this.stripeService.subscriptions.cancel(stripeSub.id).catch((cleanupErr: Error) =>
+          this.logger.error({
+            message: 'Failed to clean up orphaned Stripe subscription',
+            stripeSubscriptionId: stripeSub.id,
+            error: cleanupErr.message,
+          }),
+        );
+        throw err;
+      }
+
+      return this.findById(id);
     }
 
-    const stripeSub = await this.stripeService.subscriptions.create(
-      createParams,
-      { idempotencyKey },
-    );
-
-    const alreadySaved = await this.repo.findByStripeId(stripeSub.id);
-    if (alreadySaved) return this.findById(alreadySaved.id);
+    // DB-only path: no Stripe subscription, local reference only
+    const id = randomUUID();
+    const localStripeRef = `local_${id}`;
+    const now = new Date();
+    const periodEnd = new Date(now);
+    periodEnd.setMonth(periodEnd.getMonth() + 1);
 
     this.logger.log({
-      message: 'Subscription created',
-      stripeSubscriptionId: stripeSub.id,
-      status: stripeSub.status,
+      message: 'Creating plan-free local subscription',
+      localRef: localStripeRef,
       customerId: customer.id,
     });
 
-    const id = randomUUID();
-    try {
-      await this.repo.insert(
-        id,
-        stripeSub.id,
-        stripeSub.status,
-        new Date(stripeSub.current_period_start * 1000),
-        new Date(stripeSub.current_period_end * 1000),
-        stripeSub.cancel_at_period_end ? 1 : 0,
-        stripeSub.trial_start ? new Date(stripeSub.trial_start * 1000) : null,
-        stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null,
-        dto.priceId,
-        dto.paymentMethodId ?? null,
-        customer.id,
-        dto.metadata ? JSON.stringify(dto.metadata) : null,
-      );
-    } catch (err) {
-      // Prevent orphaned Stripe subscription when local insert fails
-      this.stripeService.subscriptions.cancel(stripeSub.id).catch((cleanupErr: Error) =>
-        this.logger.error({
-          message: 'Failed to clean up orphaned Stripe subscription',
-          stripeSubscriptionId: stripeSub.id,
-          error: cleanupErr.message,
-        }),
-      );
-      throw err;
-    }
+    await this.repo.insert(
+      id,
+      localStripeRef,
+      'active',
+      now,
+      periodEnd,
+      0,
+      null,
+      null,
+      '',
+      dto.paymentMethodId ?? null,
+      customer.id,
+      dto.metadata ? JSON.stringify(dto.metadata) : null,
+    );
 
     return this.findById(id);
   }

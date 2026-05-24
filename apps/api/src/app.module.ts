@@ -31,7 +31,10 @@ import { TrustIdModule } from './trustid/trustid.module';
 import { TrustIdWebhookModule } from './webhooks/trustid-webhook.module';
 import { S3Module } from './s3/s3.module';
 import { EmailModule } from './email/email.module';
+import { BillingModule } from './billing/billing.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { RedisModule } from './redis/redis.module';
+import { ScheduleModule } from '@nestjs/schedule';
 import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
 import { StripeExceptionFilter } from './common/filters/stripe-exception.filter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -50,6 +53,7 @@ import { PerUserThrottlerGuard } from './common/guards/per-user-throttler.guard'
       validationOptions: { abortEarly: false },
     }),
     PinoLoggerModule,
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule, RedisModule],
       useFactory: (configService: ConfigService, storage: RedisThrottlerStorage) => ({
@@ -96,6 +100,8 @@ import { PerUserThrottlerGuard } from './common/guards/per-user-throttler.guard'
     TrustIdModule,
     TrustIdWebhookModule,
     EmailModule,
+    BillingModule,
+    NotificationsModule,
   ],
   providers: [
     // Order matters: more specific filters first

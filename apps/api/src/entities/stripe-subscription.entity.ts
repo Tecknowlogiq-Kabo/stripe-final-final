@@ -5,10 +5,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  OneToMany,
   JoinColumn,
   Index,
 } from 'typeorm';
 import { StripeCustomer } from './stripe-customer.entity';
+import { BillingRecord } from './billing-record.entity';
 
 @Entity({ name: 'STRIPE_SUBSCRIPTIONS' })
 export class StripeSubscription {
@@ -37,7 +39,7 @@ export class StripeSubscription {
   @Column({ name: 'TRIAL_START', type: 'timestamp', nullable: true })
   trialStart?: Date;
 
-  @Column({ name: 'STRIPE_PRICE_ID', type: 'varchar2', length: 100 })
+  @Column({ name: 'STRIPE_PRICE_ID', type: 'varchar2', length: 100, nullable: true })
   stripePriceId: string;
 
   @Column({ name: 'DEFAULT_PM_ID', type: 'varchar2', length: 100, nullable: true })
@@ -49,6 +51,9 @@ export class StripeSubscription {
   @ManyToOne(() => StripeCustomer, (c) => c.subscriptions)
   @JoinColumn({ name: 'CUSTOMER_ID' })
   customer: StripeCustomer;
+
+  @OneToMany(() => BillingRecord, (br) => br.subscription)
+  billingRecords?: BillingRecord[];
 
   @Column({ name: 'METADATA', type: 'clob', nullable: true })
   metadata?: string;

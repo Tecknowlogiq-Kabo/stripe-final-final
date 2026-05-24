@@ -12,11 +12,13 @@ export const apiSlice = createApi({
     credentials: 'include',
   }),
   tagTypes: [
+    'BillingRecord',
     'Customer',
     'PaymentMethod',
     'PaymentIntent',
     'Subscription',
     'SubscriptionPlan',
+    'Notification',
   ],
   endpoints: () => ({}),
 });

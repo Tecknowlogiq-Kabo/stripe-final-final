@@ -15,3 +15,7 @@ export const PLAN_SELECT = `ID AS "id", STRIPE_PRICE_ID AS "stripePriceId", STRI
 export const WEBHOOK_SELECT = `ID AS "id", STRIPE_EVENT_ID AS "stripeEventId", EVENT_TYPE AS "eventType", PAYLOAD AS "payload", STATUS AS "status", ERROR_MESSAGE AS "errorMessage", RETRY_COUNT AS "retryCount", PROCESSED_AT AS "processedAt", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
 
 export const USER_SELECT = `ID AS "id", EMAIL AS "email", PASSWORD_HASH AS "passwordHash", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
+
+export const BILLING_RECORD_SELECT = `ID AS "id", SUBSCRIPTION_ID AS "subscriptionId", CHARGE_AMOUNT AS "chargeAmount", CURRENCY AS "currency", STATUS AS "status", PERIOD_DATE AS "periodDate", LOCKED_AT AS "lockedAt", CHARGED_AT AS "chargedAt", STRIPE_PAYMENT_INTENT_ID AS "stripePaymentIntentId", FAILURE_MESSAGE AS "failureMessage", CREATED_AT AS "createdAt", UPDATED_AT AS "updatedAt"`;
+
+export const NOTIFICATION_SELECT = `ID AS "id", CUSTOMER_ID AS "customerId", TYPE AS "type", TITLE AS "title", MESSAGE AS "message", IS_READ AS "isRead", METADATA AS "metadata", CREATED_AT AS "createdAt"`;
