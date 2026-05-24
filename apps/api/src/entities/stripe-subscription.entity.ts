@@ -40,7 +40,7 @@ export class StripeSubscription {
   trialStart?: Date;
 
   @Column({ name: 'STRIPE_PRICE_ID', type: 'varchar2', length: 100, nullable: true })
-  stripePriceId: string;
+  stripePriceId: string | null;
 
   @Column({ name: 'DEFAULT_PM_ID', type: 'varchar2', length: 100, nullable: true })
   defaultPaymentMethodId?: string;

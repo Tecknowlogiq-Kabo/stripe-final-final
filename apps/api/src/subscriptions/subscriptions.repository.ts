@@ -90,7 +90,7 @@ export class SubscriptionsRepository {
 
   async update(
     id: string,
-    priceId: string,
+    priceId: string | null,
     defaultPaymentMethodId: string | null,
     cancelAtPeriodEnd: number,
     status: string,

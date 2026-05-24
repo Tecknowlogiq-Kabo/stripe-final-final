@@ -77,6 +77,10 @@ export class BillingRecordRepository {
 
   async lockAll(ids: string[]): Promise<void> {
     if (ids.length === 0) return;
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (ids.some((id) => !uuidPattern.test(id))) {
+      throw new Error('Invalid UUID in lockAll ids');
+    }
     const quoted = ids.map((id) => `'${id}'`).join(',');
     await this.dataSource.query(
       `UPDATE BILLING_RECORDS SET STATUS = 'locked', LOCKED_AT = SYSDATE, UPDATED_AT = SYSDATE WHERE ID IN (${quoted})`,
@@ -106,7 +110,7 @@ export class BillingRecordRepository {
 
   async findLatestBySubscriptionId(subscriptionId: string): Promise<BillingRecord | null> {
     const [row] = await this.dataSource.query<BillingRecord[]>(
-      `SELECT ${BILLING_RECORD_SELECT} FROM BILLING_RECORDS WHERE SUBSCRIPTION_ID = :1 AND ROWNUM = 1 ORDER BY PERIOD_DATE DESC`,
+      `SELECT * FROM (SELECT ${BILLING_RECORD_SELECT} FROM BILLING_RECORDS WHERE SUBSCRIPTION_ID = :1 ORDER BY PERIOD_DATE DESC) WHERE ROWNUM = 1`,
       [subscriptionId],
     );
     return row ?? null;

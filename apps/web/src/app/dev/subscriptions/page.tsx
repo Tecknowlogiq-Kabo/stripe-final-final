@@ -13,8 +13,6 @@ import {
 import type { BillingRecord } from '@/features/billing/billing.types';
 import type { CreateSubscriptionInput } from '@/features/subscriptions/subscriptions.types';
 
-if (process.env.NODE_ENV === 'production') notFound();
-
 function BillingStatusBadge({ status }: { status: BillingRecord['status'] }) {
   const classMap: Record<BillingRecord['status'], string> = {
     pending: 'badge-yellow',
@@ -184,6 +182,8 @@ function BillingSection({ subscriptionId }: { subscriptionId: string }) {
 }
 
 export default function DevSubscriptionsPage() {
+  if (process.env.NODE_ENV === 'production') notFound();
+
   const { data: myCustomer, isLoading: customerLoading } = useMyCustomer();
   const customerId = myCustomer?.id ?? '';
 

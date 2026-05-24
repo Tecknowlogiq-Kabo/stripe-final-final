@@ -43,6 +43,7 @@ export class BillingController {
   }
 
   @Get('records/:subscriptionId')
+  @UseGuards(DevOnlyGuard)
   async getRecords(
     @Param('subscriptionId') subscriptionId: string,
   ): Promise<BillingRecord[]> {
