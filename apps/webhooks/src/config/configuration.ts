@@ -3,7 +3,7 @@ import { validationSchema } from '../config/validation.schema';
 export { validationSchema };
 
 export default () => ({
-  port: parseInt(process.env.PORT ?? '3002', 10),
+  port: parseInt(process.env.PORT ?? '3003', 10),
   apiPrefix: process.env.API_PREFIX ?? 'api/v1',
   database: {
     user: process.env.ORACLE_USER,

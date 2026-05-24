@@ -22,7 +22,7 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
 
   const apiPrefix = configService.get<string>('apiPrefix') ?? 'api/v1';
-  const port = configService.get<number>('port') ?? 3002;
+  const port = configService.get<number>('port') ?? 3003;
 
   app.setGlobalPrefix(apiPrefix);
   app.enableVersioning({ type: VersioningType.URI });

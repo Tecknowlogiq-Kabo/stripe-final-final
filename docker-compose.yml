@@ -68,7 +68,7 @@ services:
     command: npm run start:dev
 
   jaeger:
-    image: jaegertracing/all-in-one:1.62
+    image: jaegertracing/all-in-one:latest
     container_name: stripe_jaeger
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
@@ -77,6 +77,37 @@ services:
       - "4318:4318"     # OTLP HTTP receiver
     networks:
       - stripe_net
+
+  webhooks:
+    build:
+      context: ./apps/webhooks
+      dockerfile: Dockerfile
+      target: development
+    container_name: stripe_webhooks
+    env_file:
+      - ./apps/webhooks/.env
+    environment:
+      NODE_ENV: development
+      ORACLE_HOST: oracle
+      REDIS_URL: redis://redis:6379
+      PORT: "3003"
+      OTEL_SERVICE_NAME: stripe-webhooks
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+    depends_on:
+      oracle:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./apps/webhooks:/app
+      - /app/node_modules
+    networks:
+      - stripe_net
+    command: npm run start:dev
 
   web:
     build:

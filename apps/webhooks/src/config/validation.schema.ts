@@ -4,7 +4,7 @@ export const validationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
     .default('development'),
-  PORT: Joi.number().default(3001),
+  PORT: Joi.number().default(3003),
   API_PREFIX: Joi.string().default('api/v1'),
   ORACLE_USER: Joi.string().required(),
   ORACLE_PASSWORD: Joi.string().required(),
