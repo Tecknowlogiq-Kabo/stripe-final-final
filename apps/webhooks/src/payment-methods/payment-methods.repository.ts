@@ -77,6 +77,19 @@ export class PaymentMethodsRepository {
     );
   }
 
+  async setDefaultAtomic(paymentMethodId: string, customerId: string): Promise<void> {
+    await withTransaction(this.dataSource, async (runner) => {
+      await runner.query(
+        `UPDATE STRIPE_PAYMENT_METHODS SET IS_DEFAULT = 0, UPDATED_AT = SYSDATE WHERE CUSTOMER_ID = :1`,
+        [customerId],
+      );
+      await runner.query(
+        `UPDATE STRIPE_PAYMENT_METHODS SET IS_DEFAULT = 1, UPDATED_AT = SYSDATE WHERE ID = :1`,
+        [paymentMethodId],
+      );
+    });
+  }
+
   async updateFields(
     id: string,
     fields: {

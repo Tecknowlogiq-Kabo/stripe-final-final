@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
-import { PaymentIntentsService } from '../../payment-intents/payment-intents.service';;
+import { PaymentIntentsService } from '../../payment-intents/payment-intents.service';
+import { AuditService } from '../../audit/audit.service';
 
 @Injectable()
 export class PaymentIntentHandler {
   private readonly logger = new Logger(PaymentIntentHandler.name);
 
-  constructor(private readonly paymentIntentsService: PaymentIntentsService) {}
+  constructor(
+    private readonly paymentIntentsService: PaymentIntentsService,
+    private readonly auditService: AuditService,
+  ) {}
 
   async handle(event: Stripe.Event): Promise<void> {
     const pi = event.data.object as Stripe.PaymentIntent;
@@ -20,6 +24,15 @@ export class PaymentIntentHandler {
     switch (event.type) {
       case 'payment_intent.succeeded':
         await this.paymentIntentsService.updateStatus(pi.id, 'succeeded');
+        await this.auditService.log({
+          actorId: 'system:webhook',
+          actorEmail: null,
+          action: 'payment_intent.succeeded',
+          resourceType: 'payment_intent',
+          resourceId: pi.id,
+          details: JSON.stringify({ amount: pi.amount, currency: pi.currency }),
+          status: 'success',
+        });
         break;
 
       case 'payment_intent.payment_failed': {
@@ -31,11 +44,29 @@ export class PaymentIntentHandler {
           lastError?.decline_code ?? undefined,
           lastError?.message ?? undefined,
         );
+        await this.auditService.log({
+          actorId: 'system:webhook',
+          actorEmail: null,
+          action: 'payment_intent.payment_failed',
+          resourceType: 'payment_intent',
+          resourceId: pi.id,
+          details: JSON.stringify({ errorCode: lastError?.code, declineCode: lastError?.decline_code, message: lastError?.message }),
+          status: 'failure',
+        });
         break;
       }
 
       case 'payment_intent.canceled':
         await this.paymentIntentsService.updateStatus(pi.id, 'canceled');
+        await this.auditService.log({
+          actorId: 'system:webhook',
+          actorEmail: null,
+          action: 'payment_intent.canceled',
+          resourceType: 'payment_intent',
+          resourceId: pi.id,
+          details: JSON.stringify({ cancellationReason: pi.cancellation_reason }),
+          status: 'failure',
+        });
         break;
 
       case 'payment_intent.processing':

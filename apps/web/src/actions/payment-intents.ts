@@ -5,7 +5,6 @@ import { apiClient } from '@/lib/api-client';
 export interface CreatePaymentIntentInput {
   amount: number;
   currency: string;
-  customerId?: string;
   setupFutureUsage?: 'on_session' | 'off_session';
   paymentMethodTypes?: string[];
   metadata?: Record<string, string>;
@@ -37,10 +36,6 @@ export async function createPaymentIntent(
     metadata: input.metadata,
     description: input.description,
   };
-
-  if (input.customerId) {
-    body.customerId = input.customerId;
-  }
 
   return apiClient.post<CreatePaymentIntentResult>('/payment-intents', body);
 }

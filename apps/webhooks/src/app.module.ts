@@ -3,6 +3,9 @@ import { ConfigModule } from '@nestjs/config';
 import configuration, { validationSchema } from './config/configuration';
 import { DatabaseModule } from './database/database.module';
 import { RedisModule } from './redis/redis.module';
+import { StripeModule } from './stripe/stripe.module';
+import { EmailModule } from './email/email.module';
+import { CryptoModule } from './crypto/crypto.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { TrustIdWebhookModule } from './webhooks/trustid-webhook.module';
 
@@ -28,6 +31,9 @@ import { TrustIdWebhookModule } from './webhooks/trustid-webhook.module';
     }),
     DatabaseModule,
     RedisModule,
+    StripeModule,
+    EmailModule,
+    CryptoModule,
     WebhooksModule,
     TrustIdWebhookModule,
   ],

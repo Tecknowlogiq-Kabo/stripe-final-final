@@ -43,14 +43,27 @@ export class InvoiceHandler {
 
       case 'invoice.payment_succeeded':
         if (invoice.subscription) {
-          const sub = await this.subscriptionsService.findByStripeId(
-            invoice.subscription as string,
-          );
-          if (sub) {
-            sub.status = 'active';
+          try {
+            const sub = await this.subscriptionsService.findByStripeId(
+              invoice.subscription as string,
+            );
+            if (sub && sub.status !== 'active') {
+              await this.subscriptionsService.setStatus(sub.id, 'active');
+              this.logger.log({
+                message: 'Subscription reactivated on invoice payment success',
+                subscriptionId: sub.id,
+                stripeSubscriptionId: invoice.subscription,
+              });
+            }
+          } catch (err) {
+            this.logger.error({
+              message: 'Failed to update subscription status on invoice payment success',
+              stripeSubscriptionId: invoice.subscription,
+              err,
+            });
           }
           this.logger.log({
-            message: 'Invoice payment succeeded for subscription',
+            message: 'Invoice payment succeeded',
             stripeSubscriptionId: invoice.subscription,
             amount: invoice.amount_paid,
             currency: invoice.currency,

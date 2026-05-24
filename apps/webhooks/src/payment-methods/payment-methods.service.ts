@@ -58,8 +58,7 @@ export class PaymentMethodsService {
       invoice_settings: { default_payment_method: pm.stripePaymentMethodId },
     });
 
-    await this.repo.clearDefaultByCustomer(customerId);
-    await this.repo.setDefault(paymentMethodId);
+    await this.repo.setDefaultAtomic(paymentMethodId, customerId);
   }
 
   async syncFromStripe(
@@ -91,18 +90,25 @@ export class PaymentMethodsService {
     stripePM: Stripe.PaymentMethod,
     customerId?: string,
   ): Promise<void> {
-    if (!stripePM.customer) return;
+    if (!stripePM.customer) {
+      this.logger.warn({ message: 'upsertFromStripeEvent: payment method has no customer — skipping', stripePaymentMethodId: stripePM.id });
+      return;
+    }
 
     let customer: StripeCustomer | null = null;
     try {
       customer = await this.customersService.findByStripeId(
         stripePM.customer as string,
       );
-    } catch {
+    } catch (err) {
+      this.logger.warn({ message: 'upsertFromStripeEvent: customer lookup failed — skipping', stripeCustomerId: stripePM.customer, err });
       return;
     }
 
-    if (!customer) return;
+    if (!customer) {
+      this.logger.warn({ message: 'upsertFromStripeEvent: customer not found in local DB — skipping', stripeCustomerId: stripePM.customer });
+      return;
+    }
 
     const fields = this.extractPmFields(stripePM);
     await this.repo.upsertFromStripeEvent(stripePM.id, customer.id, fields);

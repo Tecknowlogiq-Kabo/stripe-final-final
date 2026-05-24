@@ -66,10 +66,9 @@ export function PaymentHistoryPreview({
   focusPaymentIntentId,
 }: PaymentHistoryPreviewProps) {
   const { data: myCustomer, isLoading: isCustomerLoading, isError: isCustomerError, error: customerError } = useMyCustomer();
-  const customerId = myCustomer?.id ?? '';
 
   const { data: response, isLoading, isError, isFetching, refetch } = useCustomerPaymentIntents(
-    { customerId, page: 1, limit },
+    { page: 1, limit },
   );
 
   const isMissingCustomer =
@@ -95,7 +94,7 @@ export function PaymentHistoryPreview({
 
       {showLoading ? (
         <SkeletonRows />
-      ) : isMissingCustomer || !customerId ? (
+      ) : isMissingCustomer || !myCustomer ? (
         <div className="rounded-lg border border-zinc-800/80 bg-zinc-950/40 p-4 text-sm text-zinc-400">
           Payment history appears after you create a customer profile and complete a checkout.
           <div className="mt-4 flex flex-wrap gap-2">

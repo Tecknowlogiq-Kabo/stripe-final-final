@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { createPaymentIntent } from '@/actions/payment-intents';
 import { StripeProvider } from '@/components/stripe/StripeProvider';
 import { CheckoutForm } from '@/components/checkout/CheckoutForm';
@@ -11,10 +10,7 @@ import { useMyCustomer } from '@/features/customers/customers.hooks';
 type Step = 'select' | 'payment';
 
 export default function CheckoutPage() {
-  const router = useRouter();
-
-  const { data: myCustomer, isLoading: isLoadingCustomer } = useMyCustomer();
-  const customerId = myCustomer?.id;
+  const { isLoading: isLoadingCustomer } = useMyCustomer();
 
   const [step, setStep] = useState<Step>('select');
   const [clientSecret, setClientSecret] = useState<string | null>(null);
@@ -41,11 +37,6 @@ export default function CheckoutPage() {
     );
   }
 
-  if (!customerId) {
-    router.push('/account');
-    return null;
-  }
-
   const handleSubmit = async (data: {
     amount: number;
     currency: string;
@@ -60,7 +51,6 @@ export default function CheckoutPage() {
       const result = await createPaymentIntent({
         amount: data.amount,
         currency: data.currency,
-        customerId,
         paymentMethodTypes: [data.paymentMethodType],
         setupFutureUsage: data.savePaymentMethod ? 'off_session' : undefined,
       });

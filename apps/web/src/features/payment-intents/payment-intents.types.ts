@@ -20,7 +20,6 @@ export interface PaymentIntentListResponse {
 }
 
 export interface GetCustomerPaymentIntentsParams {
-  customerId: string;
   page?: number;
   limit?: number;
   status?: string;

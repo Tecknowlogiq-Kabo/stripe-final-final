@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
-import { SubscriptionsService } from '../../subscriptions/subscriptions.service';;
+import { SubscriptionsService } from '../../subscriptions/subscriptions.service';
+import { AuditService } from '../../audit/audit.service';
 
 @Injectable()
 export class SubscriptionHandler {
   private readonly logger = new Logger(SubscriptionHandler.name);
 
-  constructor(private readonly subscriptionsService: SubscriptionsService) {}
+  constructor(
+    private readonly subscriptionsService: SubscriptionsService,
+    private readonly auditService: AuditService,
+  ) {}
 
   async handle(event: Stripe.Event): Promise<void> {
     const subscription = event.data.object as Stripe.Subscription;
@@ -19,11 +23,35 @@ export class SubscriptionHandler {
 
     switch (event.type) {
       case 'customer.subscription.created':
+        await this.subscriptionsService.syncFromStripeEvent(subscription);
+        await this.auditService.log({
+          actorId: 'system:webhook',
+          actorEmail: null,
+          action: 'subscription.created',
+          resourceType: 'subscription',
+          resourceId: subscription.id,
+          details: JSON.stringify({ status: subscription.status, customerId: subscription.customer }),
+          status: 'success',
+        });
+        break;
+
       case 'customer.subscription.updated':
-      case 'customer.subscription.deleted':
       case 'customer.subscription.paused':
       case 'customer.subscription.resumed':
         await this.subscriptionsService.syncFromStripeEvent(subscription);
+        break;
+
+      case 'customer.subscription.deleted':
+        await this.subscriptionsService.syncFromStripeEvent(subscription);
+        await this.auditService.log({
+          actorId: 'system:webhook',
+          actorEmail: null,
+          action: 'subscription.deleted',
+          resourceType: 'subscription',
+          resourceId: subscription.id,
+          details: JSON.stringify({ status: subscription.status, customerId: subscription.customer, canceledAt: subscription.canceled_at }),
+          status: 'success',
+        });
         break;
 
       case 'customer.subscription.trial_will_end':

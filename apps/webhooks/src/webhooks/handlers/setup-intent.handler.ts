@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
-import { SetupIntentsService } from '../../setup-intents/setup-intents.service';;
+import { SetupIntentsService } from '../../setup-intents/setup-intents.service';
+import { AuditService } from '../../audit/audit.service';
 
 @Injectable()
 export class SetupIntentHandler {
   private readonly logger = new Logger(SetupIntentHandler.name);
 
-  constructor(private readonly setupIntentsService: SetupIntentsService) {}
+  constructor(
+    private readonly setupIntentsService: SetupIntentsService,
+    private readonly auditService: AuditService,
+  ) {}
 
   async handle(event: Stripe.Event): Promise<void> {
     const si = event.data.object as Stripe.SetupIntent;
@@ -24,6 +28,15 @@ export class SetupIntentHandler {
           'succeeded',
           si.payment_method as string | undefined,
         );
+        await this.auditService.log({
+          actorId: 'system:webhook',
+          actorEmail: null,
+          action: 'setup_intent.succeeded',
+          resourceType: 'setup_intent',
+          resourceId: si.id,
+          details: JSON.stringify({ paymentMethod: si.payment_method, customer: si.customer }),
+          status: 'success',
+        });
         break;
 
       case 'setup_intent.setup_failed':
@@ -33,6 +46,15 @@ export class SetupIntentHandler {
           undefined,
           si.last_setup_error ? JSON.stringify(si.last_setup_error) : undefined,
         );
+        await this.auditService.log({
+          actorId: 'system:webhook',
+          actorEmail: null,
+          action: 'setup_intent.setup_failed',
+          resourceType: 'setup_intent',
+          resourceId: si.id,
+          details: JSON.stringify({ error: si.last_setup_error }),
+          status: 'failure',
+        });
         break;
 
       case 'setup_intent.canceled':

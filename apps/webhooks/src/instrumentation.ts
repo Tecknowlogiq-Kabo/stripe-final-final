@@ -48,4 +48,3 @@ try { sdk.start(); } catch (e) { console.error('OTel SDK start failed — contin
 const shutdown = async () => { try { await sdk.shutdown(); process.exit(0); } catch { process.exit(1); } };
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
-setTimeout(() => { process.exit(1); }, 10_000).unref();

@@ -65,6 +65,21 @@ export class ChargeHandler {
           amountRefunded: charge.amount_refunded,
           currency: charge.currency,
         });
+        await this.auditService.log({
+          actorId: 'system:webhook',
+          actorEmail: null,
+          action: 'charge.refunded',
+          resourceType: 'charge',
+          resourceId: charge.id,
+          details: JSON.stringify({
+            stripePaymentIntentId: charge.payment_intent,
+            amount: charge.amount,
+            amountRefunded: charge.amount_refunded,
+            currency: charge.currency,
+            refunds: charge.refunds?.data?.map((r) => ({ id: r.id, amount: r.amount, status: r.status })),
+          }),
+          status: 'success',
+        });
         break;
       }
 

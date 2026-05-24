@@ -43,15 +43,14 @@ export default function PaymentsPage() {
   const limit = 10;
 
   const { data: myCustomer } = useMyCustomer();
-  const customerId = myCustomer?.id ?? '';
 
   const { data: response, isLoading, isError, isFetching, refetch } = useCustomerPaymentIntents(
-    { customerId, page, limit },
+    { page, limit },
   );
 
   const totalPages = response ? Math.ceil(response.total / response.limit) : 0;
 
-  if (!customerId) {
+  if (!myCustomer) {
     return (
       <div>
         <div className="mb-8">

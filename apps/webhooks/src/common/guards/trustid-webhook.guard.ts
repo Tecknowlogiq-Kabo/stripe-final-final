@@ -30,8 +30,14 @@ export class TrustIdWebhookGuard implements CanActivate {
 
     const webhookSecret = this.configService.get<string>('trustid.webhookSecret');
 
-    // If no secret is configured, allow all requests (dev mode or not configured)
     if (!webhookSecret) {
+      const isProd = this.configService.get<string>('NODE_ENV') === 'production';
+      if (isProd) {
+        this.logger.error(
+          'TRUSTID_WEBHOOK_SECRET not configured in production — rejecting all TrustID webhooks',
+        );
+        throw new UnauthorizedException('TrustID webhook endpoint not configured');
+      }
       this.logger.warn(
         'TRUSTID_WEBHOOK_SECRET not configured — TrustID webhooks are unauthenticated. Set the env var to secure this endpoint.',
       );

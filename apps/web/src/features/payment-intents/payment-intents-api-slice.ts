@@ -12,19 +12,19 @@ export const paymentIntentsApiSlice = apiSlice.injectEndpoints({
       PaymentIntentListResponse,
       GetCustomerPaymentIntentsParams
     >({
-      queryFn: ({ customerId, page = 1, limit = 10, status }) => {
+      queryFn: ({ page = 1, limit = 10, status }) => {
         const params = new URLSearchParams();
         params.set('page', String(page));
         params.set('limit', String(limit));
         if (status) params.set('status', status);
         return apiClient
           .get<PaymentIntentListResponse>(
-            `/payment-intents/customer/${customerId}?${params.toString()}`,
+            `/payment-intents/mine?${params.toString()}`,
           )
           .then((data) => ({ data }));
       },
-      providesTags: (_result, _error, { customerId }) => [
-        { type: 'PaymentIntent', id: `LIST-${customerId}` },
+      providesTags: () => [
+        { type: 'PaymentIntent', id: 'LIST-mine' },
       ],
       keepUnusedDataFor: 30,
     }),

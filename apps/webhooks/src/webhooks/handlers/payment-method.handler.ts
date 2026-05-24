@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
-import { PaymentMethodsService } from '../../payment-methods/payment-methods.service';;
+import { PaymentMethodsService } from '../../payment-methods/payment-methods.service';
+import { AuditService } from '../../audit/audit.service';
 
 @Injectable()
 export class PaymentMethodHandler {
   private readonly logger = new Logger(PaymentMethodHandler.name);
 
-  constructor(private readonly paymentMethodsService: PaymentMethodsService) {}
+  constructor(
+    private readonly paymentMethodsService: PaymentMethodsService,
+    private readonly auditService: AuditService,
+  ) {}
 
   async handle(event: Stripe.Event): Promise<void> {
     const pm = event.data.object as Stripe.PaymentMethod;
@@ -21,8 +25,28 @@ export class PaymentMethodHandler {
 
     if (type === 'payment_method.attached' || type === 'payment_method.updated') {
       await this.paymentMethodsService.upsertFromStripeEvent(pm);
+      if (type === 'payment_method.attached') {
+        await this.auditService.log({
+          actorId: 'system:webhook',
+          actorEmail: null,
+          action: 'payment_method.attached',
+          resourceType: 'payment_method',
+          resourceId: pm.id,
+          details: JSON.stringify({ type: pm.type, customer: pm.customer }),
+          status: 'success',
+        });
+      }
     } else if (type === 'payment_method.detached') {
       await this.paymentMethodsService.removeByStripeId(pm.id);
+      await this.auditService.log({
+        actorId: 'system:webhook',
+        actorEmail: null,
+        action: 'payment_method.detached',
+        resourceType: 'payment_method',
+        resourceId: pm.id,
+        details: JSON.stringify({ type: pm.type }),
+        status: 'success',
+      });
     } else if (type === 'payment_method.card_automatically_updated') {
       await this.paymentMethodsService.upsertFromStripeEvent(pm);
       const dataWithPrev = event.data as { previous_attributes?: Record<string, unknown> };
