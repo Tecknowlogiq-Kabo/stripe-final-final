@@ -68,5 +68,11 @@ export default () => ({
     sessionTtlSeconds: parseInt(process.env.TRUSTID_SESSION_TTL_SECONDS ?? '3600', 10),
     webhookCallbackBaseUrl: process.env.TRUSTID_WEBHOOK_CALLBACK_BASE_URL,
     webhookSecret: process.env.TRUSTID_WEBHOOK_SECRET,
+    branchMap: process.env.TRUSTID_BRANCH_MAP ?? '{}',
+    amountThresholds: process.env.TRUSTID_AMOUNT_THRESHOLDS ?? '[]',
+    defaultBranchId: process.env.TRUSTID_DEFAULT_BRANCH_ID,
+    retryBranchId: process.env.TRUSTID_RETRY_BRANCH_ID,
+    fileRetentionHours: parseInt(process.env.TRUSTID_FILE_RETENTION_HOURS ?? '20', 10),
+    maxDocRetries: parseInt(process.env.TRUSTID_MAX_DOC_RETRIES ?? '2', 10),
   },
 });

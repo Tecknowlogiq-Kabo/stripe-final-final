@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
 import { TrustController } from './trust.controller';
 import { TrustService } from './trust.service';
 import { TrustRepository } from './trust.repository';
 import { TrustGuard } from './trust.guard';
 import { S3Module } from '../s3/s3.module';
 import { TrustIdModule } from '../trustid/trustid.module';
+import { TRUSTID_WEBHOOK_QUEUE } from '../webhooks/trustid-webhook-queue.constants';
 
 @Module({
   imports: [
@@ -18,6 +20,7 @@ import { TrustIdModule } from '../trustid/trustid.module';
       }),
       inject: [ConfigService],
     }),
+    BullModule.registerQueue({ name: TRUSTID_WEBHOOK_QUEUE }),
     S3Module,
     TrustIdModule,
   ],

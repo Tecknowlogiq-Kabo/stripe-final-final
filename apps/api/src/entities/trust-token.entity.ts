@@ -44,6 +44,18 @@ export class TrustToken {
   @Column({ name: 'METADATA', type: 'varchar2', length: 4000, nullable: true })
   metadata?: string;
 
+  @Column({ name: 'BRANCH_ID', type: 'varchar2', length: 100, nullable: true })
+  branchId?: string;
+
+  @Column({ name: 'S3_COLLECTED_AT', type: 'timestamp', nullable: true })
+  s3CollectedAt?: Date;
+
+  @Column({ name: 'RETRY_COUNT', type: 'number', default: 0, nullable: true })
+  retryCount: number;
+
+  @Column({ name: 'RETRY_BRANCH_ID', type: 'varchar2', length: 100, nullable: true })
+  retryBranchId?: string;
+
   @CreateDateColumn({ name: 'CREATED_AT', type: 'timestamp' })
   createdAt: Date;
 

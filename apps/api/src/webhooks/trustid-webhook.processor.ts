@@ -7,6 +7,7 @@ import { TRUSTID_WEBHOOK_QUEUE, TRUSTID_WEBHOOK_DLQ } from './trustid-webhook-qu
 import { TrustIdService } from '../trustid/trustid.service';
 import { TrustRepository } from '../trust/trust.repository';
 import { S3Service } from '../s3/s3.service';
+import { TrustIdDocumentFailedHandler } from './handlers/trustid-document-failed.handler';
 import { DBS_STATUS_TO_TOKEN_STATUS, interpretDBSStatus, isDBSTerminal } from '../trustid/dbs-status.constants';
 import type { DBSStatusCode } from '../trustid/dbs-status.constants';
 
@@ -17,6 +18,7 @@ import type { DBSStatusCode } from '../trustid/dbs-status.constants';
 export interface TrustIdWebhookJobData {
   containerId: string;
   callbackId?: string;
+  jobType?: 'result' | 'document-failed';
 }
 
 // ---------------------------------------------------------------------------
@@ -45,6 +47,7 @@ export class TrustIdWebhookProcessor extends WorkerHost {
     private readonly trustIdService: TrustIdService,
     private readonly trustRepo: TrustRepository,
     private readonly s3Service: S3Service,
+    private readonly documentFailedHandler: TrustIdDocumentFailedHandler,
     @InjectQueue(TRUSTID_WEBHOOK_DLQ) private readonly dlq: Queue<TrustIdWebhookJobData>,
   ) {
     super();
@@ -55,7 +58,7 @@ export class TrustIdWebhookProcessor extends WorkerHost {
   // -----------------------------------------------------------------------
 
   async process(job: Job<TrustIdWebhookJobData>): Promise<void> {
-    const { containerId, callbackId } = job.data;
+    const { containerId, callbackId, jobType } = job.data;
     const tracer = trace.getTracer('trustid-webhooks');
     const span = tracer.startSpan('trustid-webhook.process', {
       attributes: {
@@ -72,12 +75,17 @@ export class TrustIdWebhookProcessor extends WorkerHost {
       jobId: job.id,
       containerId,
       callbackId: callbackId ?? 'unknown',
+      jobType: jobType ?? 'result',
       attempt: job.attemptsMade + 1,
       traceId: span.spanContext().traceId,
     });
 
     try {
-      await this.pullAndStore(containerId);
+      if (jobType === 'document-failed') {
+        await this.documentFailedHandler.handle(containerId, callbackId);
+      } else {
+        await this.pullAndStore(containerId);
+      }
       span.setStatus({ code: SpanStatusCode.OK });
     } catch (err) {
       span.setStatus({
@@ -237,6 +245,13 @@ export class TrustIdWebhookProcessor extends WorkerHost {
     const tokenStatus = dbsMappedStatus ?? 'approved';
 
     await this.trustRepo.updateStatus(trustToken.id, tokenStatus);
+
+    // ---- 5.5. Record S3 collection timestamp ----
+    try {
+      await this.trustRepo.markS3Collected(trustToken.id);
+    } catch (err) {
+      this.logger.warn({ message: 'Failed to mark S3 collected — non-fatal', tokenId: trustToken.id, err });
+    }
 
     // ---- 6. Update token metadata with DBS status info ----
     if (trustToken.metadata) {

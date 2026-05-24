@@ -2,12 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { randomUUID, createHash } from 'crypto';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { TrustRepository } from './trust.repository';
 import { AuditService } from '../audit/audit.service';
 import { RedisService } from '../redis/redis.service';
 import { S3Service } from '../s3/s3.service';
 import { TrustIdService } from '../trustid/trustid.service';
 import { EmailService } from '../email/email.service';
+import { TRUSTID_WEBHOOK_QUEUE } from '../webhooks/trustid-webhook-queue.constants';
+import type { TrustIdWebhookJobData } from '../webhooks/trustid-webhook.processor';
 
 interface TrustTokenPayload {
   sub: string;    // trust token ID
@@ -31,6 +36,7 @@ export class TrustService {
     private readonly s3Service: S3Service,
     private readonly trustIdService: TrustIdService,
     private readonly emailService: EmailService,
+    @InjectQueue(TRUSTID_WEBHOOK_QUEUE) private readonly trustIdQueue: Queue<TrustIdWebhookJobData>,
   ) {
     this.ttlSeconds = this.configService.get<number>('trust.tokenTtlSeconds') ?? 86400;
     this.guestLinkBaseUrl = this.configService.get<string>('trust.guestLinkBaseUrl') ?? 'http://localhost:3000';
@@ -56,6 +62,8 @@ export class TrustService {
     branchId?: string,
     flexibleFields?: { flexibleFieldVersionId: string; fieldValueString: string }[],
     sendEmailViaUs?: boolean,
+    amount?: number,
+    conditionKey?: string,
   ): Promise<{ trustId: string; tokenId: string; expiresAt: Date; guestLink: string; containerId?: string }> {
     const tokenId = randomUUID();
     const jti = randomUUID();
@@ -89,6 +97,8 @@ export class TrustService {
         applicationFlexibleFieldValues: flexibleFields ?? [],
         clientApplicationReference: reference,
         sendEmail: (metadata?.sendEmail as boolean) ?? true,
+        amount,
+        conditionKey,
       });
 
       guestLink = tResult.guestLinkUrl;
@@ -134,6 +144,7 @@ export class TrustService {
       createdBy,
       userId,
       metadata ? JSON.stringify(metadata) : undefined,
+      branchId,
     );
 
     await this.auditService.log({
@@ -363,6 +374,48 @@ export class TrustService {
       return { status: record.status, expiresAt: record.expiresAt, metadata: record.metadata };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Safety net: re-enqueue S3 collection for approved tokens whose
+   * files were never collected (job failed or went to DLQ).
+   * TrustID deletes files 24h after verification — this runs every 30 min.
+   */
+  @Cron(CronExpression.EVERY_30_MINUTES)
+  async reEnqueueMissedS3Collections(): Promise<void> {
+    const fileRetentionHours = this.configService.get<number>('trustid.fileRetentionHours') ?? 20;
+    const alertThresholdMs = (fileRetentionHours - 4) * 60 * 60 * 1000;
+
+    const missedTokens = await this.repo.findApprovedMissingS3(5);
+    if (missedTokens.length === 0) return;
+
+    this.logger.warn({
+      message: 'S3 collection safety net triggered — re-enqueueing missed collections',
+      count: missedTokens.length,
+    });
+
+    for (const token of missedTokens) {
+      const containerId = token.resourceId;
+      if (!containerId) continue;
+
+      await this.trustIdQueue.add(
+        TRUSTID_WEBHOOK_QUEUE,
+        { containerId, callbackId: 're-enqueued-safety-net' },
+        { attempts: 5, backoff: { type: 'exponential', delay: 10_000 } },
+      );
+
+      // Alert if approaching deletion window
+      const ageMs = Date.now() - token.updatedAt.getTime();
+      if (ageMs > alertThresholdMs) {
+        this.logger.error({
+          message: 'CRITICAL: TrustID files at risk of deletion — S3 collection overdue',
+          tokenId: token.id,
+          containerId,
+          ageHours: Math.floor(ageMs / 3_600_000),
+          fileRetentionHours,
+        });
+      }
     }
   }
 

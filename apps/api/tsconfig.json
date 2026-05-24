@@ -7,7 +7,25 @@
     "baseUrl": "./",
     "incremental": false,
     "strictPropertyInitialization": false,
-    "paths": {}
+    "paths": {
+      "@billing": ["src/billing/index.ts"],
+      "@billing/*": ["src/billing/*"],
+      "@trustid": ["src/trustid/index.ts"],
+      "@trustid/*": ["src/trustid/*"],
+      "@trust": ["src/trust/index.ts"],
+      "@trust/*": ["src/trust/*"],
+      "@s3": ["src/s3/index.ts"],
+      "@s3/*": ["src/s3/*"],
+      "@subscriptions": ["src/subscriptions/index.ts"],
+      "@subscriptions/*": ["src/subscriptions/*"],
+      "@auth": ["src/auth/index.ts"],
+      "@auth/*": ["src/auth/*"],
+      "@entities/*": ["src/entities/*"],
+      "@email": ["src/email/index.ts"],
+      "@email/*": ["src/email/*"],
+      "@customers": ["src/customers/index.ts"],
+      "@customers/*": ["src/customers/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "test"]

@@ -7,6 +7,7 @@ import { TrustIdModule } from '../trustid/trustid.module';
 import { TrustIdWebhookController } from './trustid-webhook.controller';
 import { TrustIdContainerHandler } from './handlers/trustid-container.handler';
 import { TrustIdResultHandler } from './handlers/trustid-result.handler';
+import { TrustIdDocumentFailedHandler } from './handlers/trustid-document-failed.handler';
 import { TrustIdWebhookProcessor } from './trustid-webhook.processor';
 import { TRUSTID_WEBHOOK_QUEUE, TRUSTID_WEBHOOK_DLQ } from './trustid-webhook-queue.constants';
 
@@ -50,7 +51,7 @@ import { TRUSTID_WEBHOOK_QUEUE, TRUSTID_WEBHOOK_DLQ } from './trustid-webhook-qu
     }),
   ],
   controllers: [TrustIdWebhookController],
-  providers: [TrustIdContainerHandler, TrustIdResultHandler, TrustIdWebhookProcessor],
-  exports: [TrustIdContainerHandler, TrustIdResultHandler, TrustIdWebhookProcessor],
+  providers: [TrustIdContainerHandler, TrustIdResultHandler, TrustIdDocumentFailedHandler, TrustIdWebhookProcessor],
+  exports: [TrustIdContainerHandler, TrustIdResultHandler, TrustIdDocumentFailedHandler, TrustIdWebhookProcessor],
 })
 export class TrustIdWebhookModule {}

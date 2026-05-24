@@ -1,8 +1,9 @@
-import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Logger, InternalServerErrorException, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { randomUUID } from 'crypto';
+import { BranchSelectorService } from './branch-selector.service';
 
 // ---------------------------------------------------------------------------
 // Types — TrustID Cloud API (Workflow 4)
@@ -32,6 +33,10 @@ export interface CreateGuestLinkParams {
   rtwCompanyName?: string;
   sendEmail?: boolean;
   callbackHeaders?: { Header: string; Value: string }[];
+  /** Used for amount-based branch selection via BranchSelectorService. */
+  amount?: number;
+  /** Used for condition-based branch selection via BranchSelectorService. */
+  conditionKey?: string;
 }
 
 export interface CreateGuestLinkResult {
@@ -80,6 +85,8 @@ export class TrustIdService {
   constructor(
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
+    @Inject(forwardRef(() => BranchSelectorService))
+    private readonly branchSelectorService: BranchSelectorService,
   ) {
     this.baseUrl = this.configService.get<string>('trustid.apiBaseUrl') ?? 'https://api.trustid.co.uk';
     this.apiKey = this.configService.get<string>('trustid.apiKey') ?? '';
@@ -232,9 +239,17 @@ export class TrustIdService {
 
     let branchId = params.branchId;
     if (!branchId) {
-      const branches = await this.getBranches();
-      if (branches.length === 0) throw new InternalServerErrorException('No TrustID branches available');
-      branchId = branches[0].id;
+      // Try BranchSelectorService first (amount/condition rules)
+      const resolved = this.branchSelectorService.resolveBranchId(params.amount, params.conditionKey);
+      if (resolved) {
+        branchId = resolved;
+        this.logger.log({ message: 'Branch auto-selected', branchId, amount: params.amount, conditionKey: params.conditionKey });
+      } else {
+        // Fall back to first available TrustID branch
+        const branches = await this.getBranches();
+        if (branches.length === 0) throw new InternalServerErrorException('No TrustID branches available');
+        branchId = branches[0].id;
+      }
     }
 
     const fields = params.applicationFlexibleFieldValues ?? [];

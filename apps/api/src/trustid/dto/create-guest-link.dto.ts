@@ -85,4 +85,12 @@ export class CreateGuestLinkDto {
 
   @IsOptional()
   metadata?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsNumber()
+  amount?: number;
+
+  @IsOptional()
+  @IsString()
+  conditionKey?: string;
 }

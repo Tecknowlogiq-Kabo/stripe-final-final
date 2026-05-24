@@ -192,11 +192,10 @@ export class TrustIdWebhookController {
   /**
    * Handle UpdateDocument workflow webhooks.
    *
-   * This fires when a container document is modified AFTER the result has
-   * already been published. We log it but take NO action — the token has
-   * already been processed and the S3 files already stored. Re-processing
-   * would overwrite verified files with modified ones.
+   * WorkflowState="Stop" means verification is complete on the updated document.
+   * We enqueue a job to check OverallStatus and create a retry guest link if ALERT.
    *
+   * WorkflowState="Start" means a document was modified post-result — log only.
    * The DocumentId in WorkflowStorage identifies which document changed.
    */
   private async handleUpdateDocument(
@@ -205,9 +204,20 @@ export class TrustIdWebhookController {
     callbackId: string | undefined,
     documentId: string | undefined,
   ) {
+    const workflowState = _payload.Callback?.WorkflowState;
+
+    if (workflowState === 'Stop' && containerId) {
+      // Enqueue for async processing — check OverallStatus and create retry link if ALERT
+      this.trustIdQueue
+        .add(TRUSTID_WEBHOOK_QUEUE, { containerId, callbackId, jobType: 'document-failed' } as TrustIdWebhookJobData & { jobType: string })
+        .catch((err) =>
+          this.logger.error({ message: 'Failed to enqueue document-failed job', containerId, err }),
+        );
+    }
+
     this.logger.log({
-      message:
-        'TrustID UpdateDocument webhook — post-result document update (no action taken)',
+      message: 'TrustID UpdateDocument webhook received',
+      workflowState: workflowState ?? 'unknown',
       containerId: containerId ?? 'unknown',
       callbackId: callbackId ?? 'unknown',
       documentId: documentId ?? 'unknown',
