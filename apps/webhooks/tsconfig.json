@@ -19,6 +19,9 @@
     "noFallthroughCasesInSwitch": false,
     "moduleResolution": "node",
     "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "paths": {
+      "@repo/entities": ["../../packages/entities/src/index.ts"]
+    }
   }
 }

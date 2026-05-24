@@ -1,7 +1,6 @@
 import { apiSlice } from '@/lib/api-slice';
+import { API_URL } from '@/lib/api-client';
 import type { AuthInput, AuthResult } from './auth.types';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 async function authFetch(endpoint: string, input: AuthInput): Promise<AuthResult> {
   const res = await fetch(`${API_URL}/api/v1/auth/${endpoint}`, {

@@ -8,6 +8,7 @@
     "incremental": false,
     "strictPropertyInitialization": false,
     "paths": {
+      "@repo/entities": ["../../packages/entities/src/index.ts"],
       "@billing": ["src/billing/index.ts"],
       "@billing/*": ["src/billing/*"],
       "@trustid": ["src/trustid/index.ts"],
